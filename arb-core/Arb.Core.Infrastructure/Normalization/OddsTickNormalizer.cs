@@ -6,10 +6,10 @@ namespace Arb.Core.Infrastructure.Normalization
 {
     public class OddsTickNormalizer : IOddsNormalizer
     {
-    public IReadOnlyList<OddsTickV1> Normalize(
-        string sourceName,
-        IReadOnlyList<RawOddsSnapshot> snapshots,
-        DateTime nowUtc)
+        public IReadOnlyList<OddsTickV1> Normalize(
+            string sourceName,
+            IReadOnlyList<RawOddsSnapshot> snapshots,
+            DateTime nowUtc)
         {
             var result = new List<OddsTickV1>();
 
@@ -44,6 +44,12 @@ namespace Arb.Core.Infrastructure.Normalization
             return sportKey switch
             {
                 "soccer_brazil_campeonato" => "brazil_serie_a",
+                "soccer_epl" => "epl",
+                "soccer_uefa_champs_league" => "champions_league",
+                "soccer_spain_la_liga" => "la_liga",
+                "soccer_germany_bundesliga" => "bundesliga",
+                "soccer_italy_serie_a" => "serie_a_italy",
+                "soccer_france_ligue_one" => "ligue_1",
                 _ => sportKey
             };
         }

@@ -9,7 +9,6 @@ namespace Arb.Core.Application.UseCases.MarketData
     public class ObservedSoccerToPolymarketProjector : IObservedSoccerToPolymarketProjector
     {
         private const string TeamToWinSemanticType = "TEAM_TO_WIN_YES_NO";
-        private const int MaxKickoffDistanceHours = 18;
 
         // Probabilidade mínima aceitável após conversão
         // Odds acima de 100 (prob < 0.01) são ruído ou erro de dados
@@ -42,9 +41,7 @@ namespace Arb.Core.Application.UseCases.MarketData
                 // antes de qualquer outra validação — se a conversão falhar,
                 // não faz sentido projetar esse tick
                 if (!TryConvertToImpliedProbability(observation.Price, out var impliedProbability))
-                {
                     continue;
-                }
 
                 if (!TryResolveObservedTeam(observation, out var observedTeam))
                     continue;
@@ -59,7 +56,6 @@ namespace Arb.Core.Application.UseCases.MarketData
                             NormalizeTeam(x.ReferencedTeam),
                             normalizedObservedTeam,
                             StringComparison.OrdinalIgnoreCase))
-                    .Where(x => IsKickoffCompatible(observation.CommenceTime, x.GameStartTime))
                     .ToArray();
 
                 foreach (var candidate in matchingCandidates)
@@ -173,14 +169,13 @@ namespace Arb.Core.Application.UseCases.MarketData
             string? observedCommenceTime,
             string? polymarketGameStartTime)
         {
-            if (!TryParseDate(observedCommenceTime, out var observed))
-                return true;
-
-            if (!TryParseDate(polymarketGameStartTime, out var target))
-                return true;
-
-            var diff = (observed - target).Duration();
-            return diff <= TimeSpan.FromHours(MaxKickoffDistanceHours);
+            // Sem filtro de data — o matching é feito exclusivamente por nome de time.
+            // Dois jogos do mesmo time em campeonatos diferentes são tratados como
+            // oportunidades independentes — cada um com seu próprio conditionId
+            // e posição separada no banco.
+            // A data correta do jogo viaja no tick via MatchedGammaStartTime
+            // e é gravada em CommenceTime na posição pelo executor.
+            return true;
         }
 
         private static bool TryParseDate(string? value, out DateTimeOffset date)

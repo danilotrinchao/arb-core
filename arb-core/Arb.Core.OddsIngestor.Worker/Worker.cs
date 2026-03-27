@@ -2,7 +2,6 @@ using Arb.Core.Application.Abstractions.MarketData;
 using Arb.Core.Application.Abstractions.Messaging;
 using Arb.Core.Application.Request;
 using Arb.Core.Application.UseCases.MarketData;
-using Arb.Core.Contracts.Events;
 using Arb.Core.Infrastructure.External.TheOddsApi;
 using Arb.Core.Infrastructure.Redis;
 using Arb.Core.Infrastructure.Redis.SoccerCatalog;
@@ -20,7 +19,7 @@ namespace Arb.Core.OddsIngestor.Worker
     public class Worker : BackgroundService
     {
         private const string TeamToWinSemanticType = "TEAM_TO_WIN_YES_NO";
-        private const int ActiveSlicePaddingHours = 6;
+        //private const int ActiveSlicePaddingHours = 6;
 
         private readonly ILogger<Worker> _logger;
         private readonly IStreamPublisher _publisher;
@@ -416,7 +415,7 @@ namespace Arb.Core.OddsIngestor.Worker
         }
 
         private ActiveSliceDiagnostics BuildActivePolymarketCandidateSlice(
-            IReadOnlyCollection<ObservedSoccerSelectionSnapshot> observations)
+    IReadOnlyCollection<ObservedSoccerSelectionSnapshot> observations)
         {
             var registryCandidates = _footballMarketRegistry
                 .GetQuoteCandidates()
@@ -446,52 +445,21 @@ namespace Arb.Core.OddsIngestor.Worker
                         StringComparer.OrdinalIgnoreCase))
                 .ToArray();
 
-            var observedKickoffs = observations
-                .Select(x => x.CommenceTime)
-                .Where(x => TryParseDate(x, out _))
-                .Select(x =>
-                {
-                    TryParseDate(x, out var value);
-                    return value;
-                })
-                .OrderBy(x => x)
-                .ToArray();
-
-            if (observedKickoffs.Length == 0)
-            {
-                return new ActiveSliceDiagnostics
-                {
-                    RegistryCandidates = registryCandidates,
-                    ObservedTeams = observedTeams,
-                    TeamMatchedCandidates = teamMatchedCandidates,
-                    ActiveCandidates = teamMatchedCandidates,
-                    WindowStart = null,
-                    WindowEnd = null
-                };
-            }
-
-            var windowStart = observedKickoffs.First().AddHours(-ActiveSlicePaddingHours);
-            var windowEnd = observedKickoffs.Last().AddHours(ActiveSlicePaddingHours);
-
-            var activeCandidates = teamMatchedCandidates
-                .Where(x => TryParseDate(x.GameStartTime, out var kickoff) &&
-                            kickoff >= windowStart &&
-                            kickoff <= windowEnd)
-                .OrderBy(x => x.GameStartTime, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(x => x.ConditionId, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-
+            // Sem filtro de janela temporal — todos os candidatos que batem
+            // por nome de time são considerados ativos.
+            // O matching correto é garantido pelo IsKickoffCompatible no projector
+            // que compara as datas diretamente entre TheOddsApi e Polymarket.
+            // A data do jogo viaja no tick via MatchedGammaStartTime e CommenceTime.
             return new ActiveSliceDiagnostics
             {
                 RegistryCandidates = registryCandidates,
                 ObservedTeams = observedTeams,
                 TeamMatchedCandidates = teamMatchedCandidates,
-                ActiveCandidates = activeCandidates,
-                WindowStart = windowStart.ToString("O"),
-                WindowEnd = windowEnd.ToString("O")
+                ActiveCandidates = teamMatchedCandidates,
+                WindowStart = null,
+                WindowEnd = null
             };
         }
-
         private ObservedBuildResult BuildObservedSoccerSelectionSnapshots(
             IReadOnlyCollection<object> rawSnapshots,
             string sportKey,
