@@ -21,8 +21,8 @@ namespace Arb.Core.Infrastructure.DependencyInjection
     public static class ServiceCollectionExtensions
     {
         public static IServiceCollection AddArbInfrastructure(
-        this IServiceCollection services,
-        IConfiguration config)
+            this IServiceCollection services,
+            IConfiguration config)
         {
             // Options
             services.Configure<RedisOptions>(config.GetSection(RedisOptions.SectionName));
@@ -34,21 +34,29 @@ namespace Arb.Core.Infrastructure.DependencyInjection
                 config.GetSection(PolymarketObservedSignalOptions.SectionName));
 
             // Redis geral
+            // Lê Redis:Connection (appsettings local) ou Redis__Connection (variável de ambiente Railway)
+            // Suporta formato redis://user:password@host:port (Railway) e host:port (local)
             services.AddSingleton<RedisConnectionFactory>();
             services.AddSingleton<IStreamPublisher, RedisStreamPublisher>();
             services.AddSingleton<IStreamConsumer, RedisStreamConsumer>();
 
             services.AddSingleton<IConnectionMultiplexer>(_ =>
             {
-                var connectionString =
-                    config["Redis:Configuration"] ??
+                var rawUrl =
+                    config["Redis:Connection"] ??
                     config["Redis:ConnectionString"] ??
+                    config["Redis:Configuration"] ??
                     "localhost:6379";
+
+                var connectionString = ConvertRedisUrl(rawUrl);
 
                 return ConnectionMultiplexer.Connect(connectionString);
             });
 
             // Postgres
+            // Lê Postgres:Connection (appsettings local) ou Postgres__Connection (variável de ambiente Railway)
+            // Npgsql aceita tanto o formato postgresql://user:pass@host:port/db (Railway)
+            // quanto o formato Host=...;Port=...;Database=... (local)
             services.AddSingleton<NpgsqlConnectionFactory>();
             services.AddSingleton<DbInitializer>();
             services.AddScoped<IOrderIntentRepository, OrderIntentRepository>();
@@ -93,6 +101,53 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             services.AddSingleton<IPolymarketObservedSignalEngine, PolymarketObservedSignalEngine>();
 
             return services;
+        }
+
+        /// <summary>
+        /// Converte URL no formato Redis do Railway (redis://user:password@host:port)
+        /// para o formato esperado pelo StackExchange.Redis (host:port,password=senha).
+        /// Se a URL já estiver no formato correto, retorna sem alteração.
+        /// </summary>
+        private static string ConvertRedisUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+                return "localhost:6379";
+
+            // Já está no formato StackExchange.Redis — retorna direto
+            if (!url.StartsWith("redis://", StringComparison.OrdinalIgnoreCase) &&
+                !url.StartsWith("rediss://", StringComparison.OrdinalIgnoreCase))
+                return url;
+
+            try
+            {
+                var uri = new Uri(url);
+                var host = uri.Host;
+                var port = uri.Port > 0 ? uri.Port : 6379;
+
+                // UserInfo pode ser "default:password" ou apenas "password"
+                var password = string.Empty;
+                if (!string.IsNullOrWhiteSpace(uri.UserInfo))
+                {
+                    password = uri.UserInfo.Contains(':')
+                        ? uri.UserInfo.Split(':', 2)[1]
+                        : uri.UserInfo;
+                }
+
+                // rediss:// indica TLS
+                var tls = url.StartsWith("rediss://", StringComparison.OrdinalIgnoreCase)
+                    ? ",ssl=true,abortConnect=false"
+                    : ",abortConnect=false";
+
+                return string.IsNullOrWhiteSpace(password)
+                    ? $"{host}:{port}{tls}"
+                    : $"{host}:{port},password={password}{tls}";
+            }
+            catch
+            {
+                // Se a conversão falhar por qualquer motivo, retorna a URL original
+                // e deixa o StackExchange.Redis tentar interpretar diretamente
+                return url;
+            }
         }
     }
 }
