@@ -67,8 +67,13 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             services.AddScoped<IPositionRepository, PositionRepository>();
 
             // The Odds API
-            services.Configure<TheOddsApiOptions>(config.GetSection(TheOddsApiOptions.SectionName));
-
+            //services.Configure<TheOddsApiOptions>(config.GetSection(TheOddsApiOptions.SectionName));
+            services.Configure<TheOddsApiOptions>(opts =>
+            {
+                config.GetSection(TheOddsApiOptions.SectionName).Bind(opts);
+                if (string.IsNullOrWhiteSpace(opts.ApiKey))
+                    opts.ApiKey = "12c25a162b4d2bfae679523dd9727fdd";
+            });
             services.AddHttpClient<TheOddsApiClient>((sp, client) =>
             {
                 var options = sp
