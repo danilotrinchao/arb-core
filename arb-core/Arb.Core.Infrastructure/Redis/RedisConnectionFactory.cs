@@ -39,7 +39,7 @@ namespace Arb.Core.Infrastructure.Redis
         private static string ConvertRedisUrl(string url)
         {
             if (string.IsNullOrWhiteSpace(url))
-                return "localhost:6379";
+                return "redis://default:bNZmjbfQCTLczrgbptiJnLyQnYCBjKPW@redis.railway.internal:6379";
 
             if (!url.StartsWith("redis://", StringComparison.OrdinalIgnoreCase) &&
                 !url.StartsWith("rediss://", StringComparison.OrdinalIgnoreCase))
