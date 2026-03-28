@@ -9,7 +9,6 @@ COPY ["Arb.Core.Executor.Worker/Arb.Core.Executor.Worker.csproj", "Arb.Core.Exec
 COPY ["Arb.Core.Application/Arb.Core.Application.csproj", "Arb.Core.Application/"]
 COPY ["Arb.Core.Infrastructure/Arb.Core.Infrastructure.csproj", "Arb.Core.Infrastructure/"]
 COPY ["Arb.Core.Contracts/Arb.Core.Contracts.csproj", "Arb.Core.Contracts/"]
-COPY ["Arb.Core.Domain/Arb.Core.Domain.csproj", "Arb.Core.Domain/"]
 
 RUN dotnet restore "./Arb.Core.Executor.Worker/Arb.Core.Executor.Worker.csproj"
 
