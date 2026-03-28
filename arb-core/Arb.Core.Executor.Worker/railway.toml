@@ -1,0 +1,6 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "arb-core/Arb.Core.Executor.Worker/Dockerfile"
+
+[deploy]
+restartPolicyType = "always"
