@@ -14,6 +14,7 @@ using Arb.Core.Infrastructure.Redis.SoccerCatalog;
 using Arb.Core.Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 
 namespace Arb.Core.Infrastructure.DependencyInjection
@@ -33,31 +34,33 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             services.Configure<PolymarketObservedSignalOptions>(
                 config.GetSection(PolymarketObservedSignalOptions.SectionName));
 
-            // Redis geral
-            // Lê Redis:Connection (appsettings local) ou Redis__Connection (variável de ambiente Railway)
-            // Suporta formato redis://user:password@host:port (Railway) e host:port (local)
+            // Redis — conversão de URL feita dentro de cada factory
             services.AddSingleton<RedisConnectionFactory>();
             services.AddSingleton<IStreamPublisher, RedisStreamPublisher>();
             services.AddSingleton<IStreamConsumer, RedisStreamConsumer>();
 
-            services.AddSingleton<IConnectionMultiplexer>(_ =>
+            services.AddSingleton<IConnectionMultiplexer>(sp =>
             {
-                var rawUrl =
-                    config["Redis:Connection"] ??
-                    config["Redis:ConnectionString"] ??
-                    config["Redis:Configuration"] ??
-                    "localhost:6379";
-
-                var connectionString = ConvertRedisUrl(rawUrl);
-
-                return ConnectionMultiplexer.Connect(connectionString);
+                // Reutiliza a mesma conexão já criada pelo RedisConnectionFactory
+                // evita abrir duas conexões para o mesmo Redis
+                var factory = sp.GetRequiredService<RedisConnectionFactory>();
+                return factory.Connection;
             });
 
-            // Postgres
-            // Lê Postgres:Connection (appsettings local) ou Postgres__Connection (variável de ambiente Railway)
-            // Npgsql aceita tanto o formato postgresql://user:pass@host:port/db (Railway)
-            // quanto o formato Host=...;Port=...;Database=... (local)
-            services.AddSingleton<NpgsqlConnectionFactory>();
+            // Postgres — conversão de URL feita na factory
+            services.AddSingleton<NpgsqlConnectionFactory>(sp =>
+            {
+                var rawConnectionString =
+                    config["Postgres:Connection"] ??
+                    config["Postgres:ConnectionString"] ??
+                    "Host=localhost;Port=5432;Database=arb;Username=postgres;Password=1234";
+
+                var connectionString = ConvertPostgresUrl(rawConnectionString);
+
+                return new NpgsqlConnectionFactory(
+                    Options.Create(new PostgresOptions { Connection = connectionString }));
+            });
+
             services.AddSingleton<DbInitializer>();
             services.AddScoped<IOrderIntentRepository, OrderIntentRepository>();
             services.AddScoped<IExecutionReportRepository, ExecutionReportRepository>();
@@ -70,11 +73,11 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             services.AddHttpClient<TheOddsApiClient>((sp, client) =>
             {
                 var options = sp
-                    .GetRequiredService<Microsoft.Extensions.Options.IOptions<TheOddsApiOptions>>()
+                    .GetRequiredService<IOptions<TheOddsApiOptions>>()
                     .Value;
 
                 client.BaseAddress = new Uri(options.BaseUrl);
-                client.Timeout = TimeSpan.FromSeconds(60);
+                client.Timeout = TimeSpan.FromSeconds(120);
             });
 
             services.AddScoped<IMarketOddsProvider, TheOddsApiProvider>();
@@ -86,7 +89,7 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             services.AddSingleton<CreditBudgetService>();
             services.AddSingleton<SnapshotDedupService>();
 
-            // Soccer Catalog - Redis
+            // Soccer Catalog - Redis — conversão de URL feita dentro da factory
             services.Configure<FootballCatalogRedisOptions>(
                 config.GetSection(FootballCatalogRedisOptions.SectionName));
 
@@ -104,48 +107,44 @@ namespace Arb.Core.Infrastructure.DependencyInjection
         }
 
         /// <summary>
-        /// Converte URL no formato Redis do Railway (redis://user:password@host:port)
-        /// para o formato esperado pelo StackExchange.Redis (host:port,password=senha).
-        /// Se a URL já estiver no formato correto, retorna sem alteração.
+        /// Converte URL Postgres do Railway (postgresql://user:password@host:port/database)
+        /// para o formato key-value que o Npgsql aceita.
+        /// Se já estiver no formato key-value, retorna sem alteração.
         /// </summary>
-        private static string ConvertRedisUrl(string url)
+        private static string ConvertPostgresUrl(string url)
         {
             if (string.IsNullOrWhiteSpace(url))
-                return "localhost:6379";
+                return url;
 
-            // Já está no formato StackExchange.Redis — retorna direto
-            if (!url.StartsWith("redis://", StringComparison.OrdinalIgnoreCase) &&
-                !url.StartsWith("rediss://", StringComparison.OrdinalIgnoreCase))
+            if (!url.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase) &&
+                !url.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase))
                 return url;
 
             try
             {
                 var uri = new Uri(url);
-                var host = uri.Host;
-                var port = uri.Port > 0 ? uri.Port : 6379;
 
-                // UserInfo pode ser "default:password" ou apenas "password"
+                var host = uri.Host;
+                var port = uri.Port > 0 ? uri.Port : 5432;
+                var database = uri.AbsolutePath.TrimStart('/');
+
+                var username = string.Empty;
                 var password = string.Empty;
+
                 if (!string.IsNullOrWhiteSpace(uri.UserInfo))
                 {
-                    password = uri.UserInfo.Contains(':')
-                        ? uri.UserInfo.Split(':', 2)[1]
-                        : uri.UserInfo;
+                    var parts = uri.UserInfo.Split(':', 2);
+                    username = parts[0];
+                    password = parts.Length > 1 ? parts[1] : string.Empty;
                 }
 
-                // rediss:// indica TLS
-                var tls = url.StartsWith("rediss://", StringComparison.OrdinalIgnoreCase)
-                    ? ",ssl=true,abortConnect=false"
-                    : ",abortConnect=false";
-
-                return string.IsNullOrWhiteSpace(password)
-                    ? $"{host}:{port}{tls}"
-                    : $"{host}:{port},password={password}{tls}";
+                // SSL Mode=Require necessário para o Postgres do Railway
+                return $"Host={host};Port={port};Database={database};" +
+                       $"Username={username};Password={password};" +
+                       $"SSL Mode=Require;Trust Server Certificate=true";
             }
             catch
             {
-                // Se a conversão falhar por qualquer motivo, retorna a URL original
-                // e deixa o StackExchange.Redis tentar interpretar diretamente
                 return url;
             }
         }

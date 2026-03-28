@@ -1,28 +1,24 @@
-# Acesse https://aka.ms/customizecontainer para saber como personalizar seu contêiner de depuração e como o Visual Studio usa este Dockerfile para criar suas imagens para uma depuração mais rápida.
-
-# Esta fase é usada durante a execução no VS no modo rápido (Padrão para a configuração de Depuração)
 FROM mcr.microsoft.com/dotnet/runtime:9.0 AS base
-USER $APP_UID
 WORKDIR /app
 
-
-# Esta fase é usada para compilar o projeto de serviço
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
-COPY ["Arb.Core.SignalEngine.Worker/Arb.Core.SignalEngine.Worker.csproj", "Arb.Core.SignalEngine.Worker/"]
-RUN dotnet restore "./Arb.Core.SignalEngine.Worker/Arb.Core.SignalEngine.Worker.csproj"
-COPY . .
-WORKDIR "/src/Arb.Core.SignalEngine.Worker"
-RUN dotnet build "./Arb.Core.SignalEngine.Worker.csproj" -c $BUILD_CONFIGURATION -o /app/build
 
-# Esta fase é usada para publicar o projeto de serviço a ser copiado para a fase final
-FROM build AS publish
-ARG BUILD_CONFIGURATION=Release
+COPY ["Arb.Core.SignalEngine.Worker/Arb.Core.SignalEngine.Worker.csproj", "Arb.Core.SignalEngine.Worker/"]
+COPY ["Arb.Core.Application/Arb.Core.Application.csproj", "Arb.Core.Application/"]
+COPY ["Arb.Core.Infrastructure/Arb.Core.Infrastructure.csproj", "Arb.Core.Infrastructure/"]
+COPY ["Arb.Core.Contracts/Arb.Core.Contracts.csproj", "Arb.Core.Contracts/"]
+COPY ["Arb.Core.Domain/Arb.Core.Domain.csproj", "Arb.Core.Domain/"]
+
+RUN dotnet restore "./Arb.Core.SignalEngine.Worker/Arb.Core.SignalEngine.Worker.csproj"
+
+COPY . .
+
+WORKDIR "/src/Arb.Core.SignalEngine.Worker"
 RUN dotnet publish "./Arb.Core.SignalEngine.Worker.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
 
-# Esta fase é usada na produção ou quando executada no VS no modo normal (padrão quando não está usando a configuração de Depuração)
 FROM base AS final
 WORKDIR /app
-COPY --from=publish /app/publish .
+COPY --from=build /app/publish .
 ENTRYPOINT ["dotnet", "Arb.Core.SignalEngine.Worker.dll"]
