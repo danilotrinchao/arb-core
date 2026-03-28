@@ -14,7 +14,12 @@ namespace Arb.Core.Infrastructure.Redis.SoccerCatalog
 
             _lazyConnection = new Lazy<ConnectionMultiplexer>(() =>
             {
-                var converted = ConvertRedisUrl(value.ConnectionString);
+                var raw = value.ConnectionString;
+                var connectionString = !string.IsNullOrWhiteSpace(raw) ? raw
+                    : Environment.GetEnvironmentVariable("REDIS_URL")
+                    ?? "localhost:6379";
+
+                var converted = ConvertRedisUrl(connectionString);
 
                 var configuration = ConfigurationOptions.Parse(converted);
                 configuration.AbortOnConnectFail = false;

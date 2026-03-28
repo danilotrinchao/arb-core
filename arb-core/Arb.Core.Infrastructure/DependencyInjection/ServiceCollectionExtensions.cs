@@ -48,10 +48,11 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             // Postgres — converte URL do Railway para formato Npgsql
             services.AddSingleton<NpgsqlConnectionFactory>(sp =>
             {
-                var rawConnectionString =
-                    config["Postgres:Connection"] ??
-                    config["Postgres:ConnectionString"] ??
-                    "Host=localhost;Port=5432;Database=arb;Username=postgres;Password=1234";
+                var rawPostgres = config["Postgres:Connection"];
+                var rawConnectionString = !string.IsNullOrWhiteSpace(rawPostgres) ? rawPostgres
+                    : config["Postgres:ConnectionString"] is string cs && !string.IsNullOrWhiteSpace(cs) ? cs
+                    : Environment.GetEnvironmentVariable("DATABASE_URL")
+                    ?? "Host=localhost;Port=5432;Database=arb;Username=postgres;Password=1234";
 
                 var connectionString = ConvertPostgresUrl(rawConnectionString);
 
@@ -141,5 +142,7 @@ namespace Arb.Core.Infrastructure.DependencyInjection
                 return url;
             }
         }
+        private static string? NullIfEmpty(this string? s) =>
+            string.IsNullOrWhiteSpace(s) ? null : s;
     }
 }
