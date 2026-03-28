@@ -12,7 +12,7 @@ namespace Arb.Core.Infrastructure.Redis
             var raw = options.Value.Connection;
             var rawConnection = !string.IsNullOrWhiteSpace(raw) ? raw
                 : Environment.GetEnvironmentVariable("REDIS_URL")
-                ?? "localhost:6379";
+                ?? "redis://default:bNZmjbfQCTLczrgbptiJnLyQnYCBjKPW@redis.railway.internal:6379";
 
             var converted = ConvertRedisUrl(rawConnection);
 

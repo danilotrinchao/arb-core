@@ -17,7 +17,7 @@ namespace Arb.Core.Infrastructure.Redis.SoccerCatalog
                 var raw = value.ConnectionString;
                 var connectionString = !string.IsNullOrWhiteSpace(raw) ? raw
                     : Environment.GetEnvironmentVariable("REDIS_URL")
-                    ?? "localhost:6379";
+                    ?? "redis://default:bNZmjbfQCTLczrgbptiJnLyQnYCBjKPW@redis.railway.internal:6379";
 
                 var converted = ConvertRedisUrl(connectionString);
 
