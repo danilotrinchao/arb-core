@@ -3,13 +3,12 @@ using StackExchange.Redis;
 
 namespace Arb.Core.Infrastructure.Redis
 {
-    public sealed class RedisConnectionFactory : IDisposable
+    public class RedisConnectionFactory : IDisposable
     {
         private readonly Lazy<ConnectionMultiplexer> _lazyConn;
 
         public RedisConnectionFactory(IOptions<RedisOptions> options)
         {
-            // Converte redis:// (Railway) para o formato aceito pelo StackExchange.Redis
             var rawConnection = options.Value.Connection;
             var converted = ConvertRedisUrl(rawConnection);
 
@@ -50,12 +49,10 @@ namespace Arb.Core.Infrastructure.Redis
                     ? url["rediss://".Length..]
                     : url["redis://".Length..];
 
-                // Separa credenciais do host pelo último @
                 var atIndex = withoutScheme.LastIndexOf('@');
                 var credentials = atIndex >= 0 ? withoutScheme[..atIndex] : string.Empty;
                 var hostPart = atIndex >= 0 ? withoutScheme[(atIndex + 1)..] : withoutScheme;
 
-                // Remove path (/0, /Interactive, etc.)
                 var slashIndex = hostPart.IndexOf('/');
                 if (slashIndex >= 0)
                     hostPart = hostPart[..slashIndex];
@@ -67,7 +64,6 @@ namespace Arb.Core.Infrastructure.Redis
                     ? int.TryParse(hostSegments[1], out var p) ? p : 6379
                     : 6379;
 
-                // Extrai senha das credenciais (user:password ou apenas password)
                 var password = string.Empty;
                 if (!string.IsNullOrWhiteSpace(credentials))
                 {

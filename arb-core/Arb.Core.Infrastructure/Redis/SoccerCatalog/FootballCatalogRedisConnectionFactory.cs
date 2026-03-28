@@ -3,7 +3,7 @@ using StackExchange.Redis;
 
 namespace Arb.Core.Infrastructure.Redis.SoccerCatalog
 {
-    public class FootballCatalogRedisConnectionFactory : IDisposable
+    public sealed class FootballCatalogRedisConnectionFactory : IDisposable
     {
         private readonly Lazy<ConnectionMultiplexer> _lazyConnection;
 
@@ -14,7 +14,6 @@ namespace Arb.Core.Infrastructure.Redis.SoccerCatalog
 
             _lazyConnection = new Lazy<ConnectionMultiplexer>(() =>
             {
-                // Converte redis:// (Railway) para o formato aceito pelo StackExchange.Redis
                 var converted = ConvertRedisUrl(value.ConnectionString);
 
                 var configuration = ConfigurationOptions.Parse(converted);
