@@ -1,6 +1,6 @@
 [build]
 builder = "dockerfile"
-dockerfilePath = "Arb.Core.SignalEngine.Worker/Dockerfile"
+dockerfilePath = "arb-core/Arb.Core.SignalEngine.Worker/Dockerfile"
 
 [deploy]
 restartPolicyType = "always"
