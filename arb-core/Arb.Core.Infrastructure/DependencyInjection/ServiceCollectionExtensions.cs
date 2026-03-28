@@ -25,7 +25,6 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             this IServiceCollection services,
             IConfiguration config)
         {
-            // Options
             services.Configure<RedisOptions>(config.GetSection(RedisOptions.SectionName));
             services.Configure<PostgresOptions>(config.GetSection(PostgresOptions.SectionName));
             services.Configure<StreamsOptions>(config.GetSection(StreamsOptions.SectionName));
@@ -34,20 +33,19 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             services.Configure<PolymarketObservedSignalOptions>(
                 config.GetSection(PolymarketObservedSignalOptions.SectionName));
 
-            // Redis — conversão de URL feita dentro de cada factory
+            // Redis — conversão de URL feita dentro de RedisConnectionFactory
             services.AddSingleton<RedisConnectionFactory>();
             services.AddSingleton<IStreamPublisher, RedisStreamPublisher>();
             services.AddSingleton<IStreamConsumer, RedisStreamConsumer>();
 
+            // Reutiliza a conexão do RedisConnectionFactory para evitar duas conexões abertas
             services.AddSingleton<IConnectionMultiplexer>(sp =>
             {
-                // Reutiliza a mesma conexão já criada pelo RedisConnectionFactory
-                // evita abrir duas conexões para o mesmo Redis
                 var factory = sp.GetRequiredService<RedisConnectionFactory>();
                 return factory.Connection;
             });
 
-            // Postgres — conversão de URL feita na factory
+            // Postgres — converte URL do Railway para formato Npgsql
             services.AddSingleton<NpgsqlConnectionFactory>(sp =>
             {
                 var rawConnectionString =
@@ -83,13 +81,12 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             services.AddScoped<IMarketOddsProvider, TheOddsApiProvider>();
             services.AddScoped<IScoreProvider, TheOddsApiScoreProvider>();
 
-            // Normalization / Polling / Budget / Dedup
             services.AddSingleton<IOddsNormalizer, OddsTickNormalizer>();
             services.AddSingleton<IMarketPollingPolicy, AdaptivePollingPolicy>();
             services.AddSingleton<CreditBudgetService>();
             services.AddSingleton<SnapshotDedupService>();
 
-            // Soccer Catalog - Redis — conversão de URL feita dentro da factory
+            // Soccer Catalog Redis — conversão de URL feita dentro de FootballCatalogRedisConnectionFactory
             services.Configure<FootballCatalogRedisOptions>(
                 config.GetSection(FootballCatalogRedisOptions.SectionName));
 
@@ -100,16 +97,14 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             services.AddSingleton<IObservedSoccerToPolymarketProjector, ObservedSoccerToPolymarketProjector>();
             services.AddSingleton<RefreshFootballCatalogSnapshotUseCase>();
 
-            // Polymarket observed signal
             services.AddSingleton<IPolymarketObservedSignalEngine, PolymarketObservedSignalEngine>();
 
             return services;
         }
 
         /// <summary>
-        /// Converte URL Postgres do Railway (postgresql://user:password@host:port/database)
-        /// para o formato key-value que o Npgsql aceita.
-        /// Se já estiver no formato key-value, retorna sem alteração.
+        /// Converte postgresql://user:pass@host:port/db para o formato Npgsql key-value.
+        /// Retorna sem alteração se já estiver no formato correto.
         /// </summary>
         private static string ConvertPostgresUrl(string url)
         {
@@ -123,7 +118,6 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             try
             {
                 var uri = new Uri(url);
-
                 var host = uri.Host;
                 var port = uri.Port > 0 ? uri.Port : 5432;
                 var database = uri.AbsolutePath.TrimStart('/');
@@ -138,7 +132,6 @@ namespace Arb.Core.Infrastructure.DependencyInjection
                     password = parts.Length > 1 ? parts[1] : string.Empty;
                 }
 
-                // SSL Mode=Require necessário para o Postgres do Railway
                 return $"Host={host};Port={port};Database={database};" +
                        $"Username={username};Password={password};" +
                        $"SSL Mode=Require;Trust Server Certificate=true";
