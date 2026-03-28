@@ -52,7 +52,7 @@ namespace Arb.Core.Infrastructure.DependencyInjection
                 var rawConnectionString = !string.IsNullOrWhiteSpace(rawPostgres) ? rawPostgres
                     : config["Postgres:ConnectionString"] is string cs && !string.IsNullOrWhiteSpace(cs) ? cs
                     : Environment.GetEnvironmentVariable("DATABASE_URL")
-                    ?? "Host=localhost;Port=5432;Database=arb;Username=postgres;Password=1234";
+                    ?? "Host=postgres.railway.internal;Port=5432;Database=railway;Username=postgres;Password=WfxqHNUYYncGjfOASkSBRAvByFSSoEdE;SSL Mode=Require;Trust Server Certificate=true";
 
                 var connectionString = ConvertPostgresUrl(rawConnectionString);
 
