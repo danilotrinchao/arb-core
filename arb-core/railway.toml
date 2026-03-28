@@ -1,0 +1,29 @@
+[[services]]
+name = "arb-ingestor"
+
+[services.build]
+builder = "dockerfile"
+dockerfilePath = "Arb.Core.OddsIngestor.Worker/Dockerfile"
+
+[services.deploy]
+restartPolicyType = "always"
+
+[[services]]
+name = "arb-signal"
+
+[services.build]
+builder = "dockerfile"
+dockerfilePath = "Arb.Core.SignalEngine.Worker/Dockerfile"
+
+[services.deploy]
+restartPolicyType = "always"
+
+[[services]]
+name = "arb-executor"
+
+[services.build]
+builder = "dockerfile"
+dockerfilePath = "Arb.Core.Executor.Worker/Dockerfile"
+
+[services.deploy]
+restartPolicyType = "always"
