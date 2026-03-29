@@ -157,7 +157,7 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                 if (tokenIds.Count == 1)
                 {
                     // Resposta para token único: { "mid_price": "0.45" }
-                    if (root.TryGetProperty("mid_price", out var midPriceEl))
+                    if (root.TryGetProperty("mid", out var midPriceEl))
                     {
                         var midPriceStr = midPriceEl.GetString();
                         if (decimal.TryParse(
