@@ -3,6 +3,8 @@ using Arb.Core.Application.Request;
 using Arb.Core.Contracts.Common.PolymarketObservation;
 using System.Globalization;
 using System.Text;
+using Microsoft.Extensions.Logging;
+using System.Linq;
 
 namespace Arb.Core.Application.UseCases.MarketData
 {
@@ -19,11 +21,14 @@ namespace Arb.Core.Application.UseCases.MarketData
         private const decimal MaxValidProbability = 0.99m;
 
         private readonly IFootballMarketRegistry _registry;
+        private readonly ILogger<ObservedSoccerToPolymarketProjector> _logger;
 
         public ObservedSoccerToPolymarketProjector(
-            IFootballMarketRegistry registry)
+            IFootballMarketRegistry registry,
+            ILogger<ObservedSoccerToPolymarketProjector> logger)
         {
             _registry = registry;
+            _logger = logger;
         }
 
         public IReadOnlyCollection<PolymarketObservedTickV1> Project(
@@ -33,6 +38,14 @@ namespace Arb.Core.Application.UseCases.MarketData
             if (observations.Count == 0 || activeCandidates.Count == 0)
                 return Array.Empty<PolymarketObservedTickV1>();
 
+            var observationsReceived = observations.Count;
+            var discardedSelectionKey = 0;
+            var discardedPriceInvalid = 0;
+            var discardedTeamEmpty = 0;
+            var discardedTeamMismatch = 0;
+            var ticksGenerated = 0;
+            var previewConditions = new List<string>();
+
             var result = new List<PolymarketObservedTickV1>();
 
             foreach (var observation in observations)
@@ -41,14 +54,23 @@ namespace Arb.Core.Application.UseCases.MarketData
                 // antes de qualquer outra validação — se a conversão falhar,
                 // não faz sentido projetar esse tick
                 if (!TryConvertToImpliedProbability(observation.Price, out var impliedProbability))
+                {
+                    discardedPriceInvalid++;
                     continue;
+                }
 
                 if (!TryResolveObservedTeam(observation, out var observedTeam))
+                {
+                    discardedSelectionKey++;
                     continue;
+                }
 
                 var normalizedObservedTeam = NormalizeTeam(observedTeam);
                 if (string.IsNullOrWhiteSpace(normalizedObservedTeam))
+                {
+                    discardedTeamEmpty++;
                     continue;
+                }
 
                 var matchingCandidates = activeCandidates
                     .Where(x =>
@@ -57,6 +79,12 @@ namespace Arb.Core.Application.UseCases.MarketData
                             normalizedObservedTeam,
                             StringComparison.OrdinalIgnoreCase))
                     .ToArray();
+
+                if (matchingCandidates.Length == 0)
+                {
+                    discardedTeamMismatch++;
+                    continue;
+                }
 
                 foreach (var candidate in matchingCandidates)
                 {
@@ -92,16 +120,33 @@ namespace Arb.Core.Application.UseCases.MarketData
 
                         ProjectionReasonCode = "ACTIVE_SLICE_DIRECT_TEAM_TO_WIN_YES_MAPPING"
                     });
+
+                    ticksGenerated++;
+                    if (previewConditions.Count < 5)
+                        previewConditions.Add(candidate.ConditionId);
                 }
             }
 
             // Deduplicação por ObservationId
             // ObservationId inclui BookmakerKey, então bookmakers distintos
             // geram IDs distintos e chegam separados ao engine
-            return result
+            var deduped = result
                 .GroupBy(x => x.ObservationId, StringComparer.OrdinalIgnoreCase)
                 .Select(x => x.First())
                 .ToArray();
+
+            // Log diagnóstico por execução do projector
+            _logger.LogInformation(
+                "Projector run. Observations={Obs} DiscardedSelectionKey={SelInvalid} DiscardedPriceInvalid={PriceInvalid} DiscardedTeamEmpty={TeamEmpty} DiscardedTeamMismatch={TeamMismatch} TicksGenerated={Ticks} PreviewConditions={Preview}",
+                observationsReceived,
+                discardedSelectionKey,
+                discardedPriceInvalid,
+                discardedTeamEmpty,
+                discardedTeamMismatch,
+                ticksGenerated,
+                string.Join(",", previewConditions));
+
+            return deduped;
         }
 
         /// <summary>

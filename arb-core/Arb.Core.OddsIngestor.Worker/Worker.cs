@@ -13,6 +13,8 @@ using System.Globalization;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
+using System.Linq;
 
 namespace Arb.Core.OddsIngestor.Worker
 {
@@ -417,8 +419,28 @@ namespace Arb.Core.OddsIngestor.Worker
         private ActiveSliceDiagnostics BuildActivePolymarketCandidateSlice(
     IReadOnlyCollection<ObservedSoccerSelectionSnapshot> observations)
         {
-            var registryCandidates = _footballMarketRegistry
+            // Obter todos os candidates do registry para contagem detalhada
+            var allCandidates = _footballMarketRegistry
                 .GetQuoteCandidates()
+                .ToArray();
+
+            var totalRegistry = allCandidates.Length;
+            var passedSemanticCount = allCandidates.Count(x =>
+                string.Equals(x.SemanticType, TeamToWinSemanticType, StringComparison.OrdinalIgnoreCase));
+            var missingReferencedTeamCount = allCandidates.Count(x => string.IsNullOrWhiteSpace(x.ReferencedTeam));
+            var missingYesTokenCount = allCandidates.Count(x => string.IsNullOrWhiteSpace(x.YesTokenId));
+            var missingNoTokenCount = allCandidates.Count(x => string.IsNullOrWhiteSpace(x.NoTokenId));
+
+            // Log diagnóstico do slice antes do filtro final
+            _logger.LogInformation(
+                "Active slice diagnostics. RegistryTotal={Total} PassedSemantic={PassedSemantic} MissingReferencedTeam={MissingRef} MissingYesToken={MissingYes} MissingNoToken={MissingNo}",
+                totalRegistry,
+                passedSemanticCount,
+                missingReferencedTeamCount,
+                missingYesTokenCount,
+                missingNoTokenCount);
+
+            var registryCandidates = allCandidates
                 .Where(x =>
                     string.Equals(
                         x.SemanticType,
@@ -447,9 +469,6 @@ namespace Arb.Core.OddsIngestor.Worker
 
             // Sem filtro de janela temporal — todos os candidatos que batem
             // por nome de time são considerados ativos.
-            // O matching correto é garantido pelo IsKickoffCompatible no projector
-            // que compara as datas diretamente entre TheOddsApi e Polymarket.
-            // A data do jogo viaja no tick via MatchedGammaStartTime e CommenceTime.
             return new ActiveSliceDiagnostics
             {
                 RegistryCandidates = registryCandidates,

@@ -46,7 +46,11 @@ namespace Arb.Core.Infrastructure.External.Polymarket
             CancellationToken ct)
         {
             var results = await GetMidpointsAsync(new[] { tokenId }, ct);
-            return results.GetValueOrDefault(tokenId);
+
+            // Antes: results.GetValueOrDefault(tokenId) -> retornava 0 quando a chave não existia.
+            // Agora: devolve null quando a chave NÃO estiver presente no dicionário,
+            // para diferenciar ausência de midpoint de preço real 0.
+            return results.TryGetValue(tokenId, out var mid) ? (decimal?)mid : null;
         }
 
         /// <summary>
