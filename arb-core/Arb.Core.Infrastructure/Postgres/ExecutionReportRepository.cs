@@ -46,7 +46,13 @@ namespace Arb.Core.Infrastructure.Postgres
             });
         }
 
+        // ExecutionReportRepository.cs linha 50
+        // DE: ParseExact com formato rígido
+        // PARA: aceitar qualquer string ou gerar um novo Guid se inválido
+
         private static Guid ParseGuid(string value)
-            => Guid.TryParse(value, out var g) ? g : Guid.ParseExact(value, "N");
+        {
+            return Guid.TryParse(value, out var guid) ? guid : Guid.NewGuid();
+        }
     }
 }

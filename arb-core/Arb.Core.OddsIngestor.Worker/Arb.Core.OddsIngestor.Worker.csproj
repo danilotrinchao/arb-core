@@ -18,4 +18,6 @@
     <ProjectReference Include="..\Arb.Core.Contracts\Arb.Core.Contracts.csproj" />
     <ProjectReference Include="..\Arb.Core.Infrastructure\Arb.Core.Infrastructure.csproj" />
   </ItemGroup>
+
+  <ProjectExtensions><VisualStudio><UserProperties appsettings_1json__JsonSchema="" /></VisualStudio></ProjectExtensions>
 </Project>

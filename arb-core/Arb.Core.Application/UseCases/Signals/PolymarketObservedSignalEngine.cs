@@ -4,6 +4,8 @@ using Arb.Core.Contracts.Common.PolymarketObservation;
 using Arb.Core.Infrastructure.Redis.SoccerCatalog;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
+using System.Linq;
 
 namespace Arb.Core.Application.UseCases.Signals
 {
@@ -13,11 +15,14 @@ namespace Arb.Core.Application.UseCases.Signals
             = new(StringComparer.OrdinalIgnoreCase);
 
         private readonly PolymarketObservedSignalOptions _options;
+        private readonly ILogger<PolymarketObservedSignalEngine> _logger;
 
         public PolymarketObservedSignalEngine(
-            IOptions<PolymarketObservedSignalOptions> options)
+            IOptions<PolymarketObservedSignalOptions> options,
+            ILogger<PolymarketObservedSignalEngine> logger)
         {
             _options = options.Value;
+            _logger = logger;
         }
 
         public PolymarketOrderIntentV1? TryProcess(
@@ -25,19 +30,31 @@ namespace Arb.Core.Application.UseCases.Signals
             DateTime utcNow)
         {
             if (tick is null)
+            {
+                _logger.LogInformation("SignalEngine reject reason={Reason}", "invalid_tick");
                 return null;
+            }
 
             if (string.IsNullOrWhiteSpace(tick.PolymarketConditionId))
+            {
+                _logger.LogInformation("SignalEngine reject reason={Reason}", "missing_condition_id");
                 return null;
+            }
 
             if (string.IsNullOrWhiteSpace(tick.YesTokenId) ||
                 string.IsNullOrWhiteSpace(tick.NoTokenId))
+            {
+                _logger.LogInformation("SignalEngine reject reason={Reason} conditionId={ConditionId}", "missing_token_ids", tick.PolymarketConditionId);
                 return null;
+            }
 
             // ObservedPrice agora em probabilidade (0 a 1) após correção do projector
             // Valores fora do intervalo válido são rejeitados
             if (tick.ObservedPrice <= 0 || tick.ObservedPrice >= 1)
+            {
+                _logger.LogInformation("SignalEngine reject reason={Reason} conditionId={ConditionId} observedPrice={ObservedPrice}", "observed_price_out_of_range", tick.PolymarketConditionId, tick.ObservedPrice);
                 return null;
+            }
 
             var bookmakerKey = string.IsNullOrWhiteSpace(tick.BookmakerKey)
                 ? "unknown"
@@ -63,7 +80,10 @@ namespace Arb.Core.Application.UseCases.Signals
 
                 var supportingSources = currentPrices.Length;
                 if (supportingSources < _options.MinSources)
+                {
+                    _logger.LogInformation("SignalEngine reject reason={Reason} conditionId={ConditionId} supportingSources={Sources} minSources={MinSources}", "insufficient_sources", tick.PolymarketConditionId, supportingSources, _options.MinSources);
                     return null;
+                }
 
                 // Mediana dos preços em probabilidade — referência atual do mercado asiático
                 var currentReferencePrice = Median(currentPrices);
@@ -74,10 +94,16 @@ namespace Arb.Core.Application.UseCases.Signals
                 // Primeira observação — salva referência, não gera intent ainda
                 // Na próxima rodada teremos delta para medir
                 if (previousReferencePrice is null || previousReferencePrice.Value <= 0)
+                {
+                    _logger.LogInformation("SignalEngine info={Info} conditionId={ConditionId} currentReferencePrice={CurrentRef}", "first_observation", tick.PolymarketConditionId, currentReferencePrice);
                     return null;
+                }
 
                 if (currentReferencePrice == previousReferencePrice.Value)
+                {
+                    _logger.LogInformation("SignalEngine reject reason={Reason} conditionId={ConditionId} previousRef={PreviousRef} currentRef={CurrentRef}", "no_price_change", tick.PolymarketConditionId, previousReferencePrice.Value, currentReferencePrice);
                     return null;
+                }
 
                 // Movimento calculado em pontos absolutos de probabilidade
                 // Ex: 0.2273 → 0.2315 = delta de 0.0042 (0.42 pontos percentuais)
@@ -96,10 +122,16 @@ namespace Arb.Core.Application.UseCases.Signals
                 var movementThreshold = (decimal)_options.MinMovementPct / 100m;
 
                 if (movementAbsolute < movementThreshold)
+                {
+                    _logger.LogInformation("SignalEngine reject reason={Reason} conditionId={ConditionId} movementAbsolute={MovementAbs} threshold={Threshold}", "movement_below_threshold", tick.PolymarketConditionId, movementAbsolute, movementThreshold);
                     return null;
+                }
 
                 if (bucket.LastIntentAtUtc is not null && utcNow - bucket.LastIntentAtUtc.Value < TimeSpan.FromSeconds(_options.SignalCooldownSeconds))
-                return null;
+                {
+                    _logger.LogInformation("SignalEngine reject reason={Reason} conditionId={ConditionId} lastIntentAt={LastIntentAt} cooldownSeconds={Cooldown}", "cooldown_active", tick.PolymarketConditionId, bucket.LastIntentAtUtc, _options.SignalCooldownSeconds);
+                    return null;
+                }
                 // Direção do movimento:
                 // Probabilidade SUBIU → asiáticos ficaram mais confiantes no time → ODDS_SHORTENING
                 // Probabilidade CAIU  → asiáticos ficaram menos confiantes → ODDS_DRIFTING
@@ -115,6 +147,15 @@ namespace Arb.Core.Application.UseCases.Signals
                 var targetTokenId = probabilityRose ? tick.YesTokenId : tick.NoTokenId;
 
                 bucket.LastIntentAtUtc = utcNow;
+
+                // Log detalhado de sucesso no gate
+                _logger.LogInformation("SignalEngine generate_intent conditionId={ConditionId} supportingSources={Sources} previousReferencePrice={PrevRef} currentReferencePrice={CurrRef} movementAbsolute={MovementAbs} movementThreshold={Threshold}",
+                    tick.PolymarketConditionId,
+                    supportingSources,
+                    previousReferencePrice.Value,
+                    currentReferencePrice,
+                    movementAbsolute,
+                    movementThreshold);
 
                 return new PolymarketOrderIntentV1
                 {
