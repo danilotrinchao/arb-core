@@ -6,7 +6,7 @@
 
         // Limite de posições abertas para o fluxo legado
         // Será removido junto com o fluxo legado no Passo 8
-        public int MaxOpenPositions { get; init; } = 10;
+        public int MaxOpenPositions { get; init; } = 20;
 
         // Limite de posições abertas exclusivo para o fluxo Polymarket
         // Separado do legado para que um não bloqueie o outro

@@ -1,6 +1,11 @@
 FROM mcr.microsoft.com/dotnet/runtime:9.0 AS base
 WORKDIR /app
 
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgssapi-krb5-2 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
