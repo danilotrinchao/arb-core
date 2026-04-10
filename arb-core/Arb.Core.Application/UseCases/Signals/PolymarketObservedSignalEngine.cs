@@ -41,8 +41,15 @@ namespace Arb.Core.Application.UseCases.Signals
                 return null;
             }
 
-            if (string.IsNullOrWhiteSpace(tick.YesTokenId) ||
-                string.IsNullOrWhiteSpace(tick.NoTokenId))
+            // Valida que pelo menos um par de tokens está disponível:
+            // YES/NO (legado) OU SIDE_A/SIDE_B (H2H)
+            var hasYesNo = !string.IsNullOrWhiteSpace(tick.YesTokenId) &&
+                          !string.IsNullOrWhiteSpace(tick.NoTokenId);
+
+            var hasSideAB = !string.IsNullOrWhiteSpace(tick.SideATokenId) &&
+                           !string.IsNullOrWhiteSpace(tick.SideBTokenId);
+
+            if (!hasYesNo && !hasSideAB)
             {
                 _logger.LogInformation("SignalEngine reject reason={Reason} conditionId={ConditionId}", "missing_token_ids", tick.PolymarketConditionId);
                 return null;
@@ -132,8 +139,9 @@ namespace Arb.Core.Application.UseCases.Signals
                     _logger.LogInformation("SignalEngine reject reason={Reason} conditionId={ConditionId} lastIntentAt={LastIntentAt} cooldownSeconds={Cooldown}", "cooldown_active", tick.PolymarketConditionId, bucket.LastIntentAtUtc, _options.SignalCooldownSeconds);
                     return null;
                 }
+
                 // Direção do movimento:
-                // Probabilidade SUBIU → asiáticos ficaram mais confiantes no time → ODDS_SHORTENING
+                // Probabilidade SUBIU → asiáticos ficaram mais confiantes no lado observado → ODDS_SHORTENING
                 // Probabilidade CAIU  → asiáticos ficaram menos confiantes → ODDS_DRIFTING
                 var probabilityRose = currentReferencePrice > previousReferencePrice.Value;
 
@@ -141,21 +149,26 @@ namespace Arb.Core.Application.UseCases.Signals
                     ? "ODDS_SHORTENING"
                     : "ODDS_DRIFTING";
 
-                // Side: compramos YES se a probabilidade subiu (time mais provável de ganhar)
-                //       compramos NO  se a probabilidade caiu  (time menos provável de ganhar)
-                var targetSide = probabilityRose ? "YES" : "NO";
-                var targetTokenId = probabilityRose ? tick.YesTokenId : tick.NoTokenId;
+                // Resolve target side e token baseado no modelo do tick
+                // e na direção do movimento
+                ResolveTargetForSignal(
+                    tick,
+                    probabilityRose,
+                    out var targetSide,
+                    out var targetTokenId);
 
                 bucket.LastIntentAtUtc = utcNow;
 
                 // Log detalhado de sucesso no gate
-                _logger.LogInformation("SignalEngine generate_intent conditionId={ConditionId} supportingSources={Sources} previousReferencePrice={PrevRef} currentReferencePrice={CurrRef} movementAbsolute={MovementAbs} movementThreshold={Threshold}",
+                _logger.LogInformation("SignalEngine generate_intent conditionId={ConditionId} supportingSources={Sources} previousReferencePrice={PrevRef} currentReferencePrice={CurrRef} movementAbsolute={MovementAbs} movementThreshold={Threshold} observedSide={ObservedSide} intentSide={IntentSide}",
                     tick.PolymarketConditionId,
                     supportingSources,
                     previousReferencePrice.Value,
                     currentReferencePrice,
                     movementAbsolute,
-                    movementThreshold);
+                    movementThreshold,
+                    tick.TargetSide,
+                    targetSide);
 
                 return new PolymarketOrderIntentV1
                 {
@@ -192,6 +205,68 @@ namespace Arb.Core.Application.UseCases.Signals
                     GeneratedAt = utcNow.ToString("O")
                 };
             }
+        }
+
+        /// <summary>
+        /// Resolve TargetSide e TargetTokenId para o sinal baseado no modelo do tick
+        /// e na direção do movimento.
+        /// 
+        /// Lógica:
+        /// - O tick traz o TargetSide observado (YES/NO ou SIDE_A/SIDE_B)
+        /// - Se probabilidade SUBIU, compramos o lado observado
+        /// - Se probabilidade CAIU, compramos o lado oposto
+        /// 
+        /// Exemplo YES/NO:
+        ///   Observado: YES, Prob subiu → compra YES
+        ///   Observado: YES, Prob caiu → compra NO
+        /// 
+        /// Exemplo SIDE_A/SIDE_B:
+        ///   Observado: SIDE_A, Prob subiu → compra SIDE_A
+        ///   Observado: SIDE_A, Prob caiu → compra SIDE_B
+        /// </summary>
+        private static void ResolveTargetForSignal(
+            PolymarketObservedTickV1 tick,
+            bool probabilityRose,
+            out string targetSide,
+            out string targetTokenId)
+        {
+            // Extrai o side oposto baseado no modelo do tick
+            var oppositeForSideA = "SIDE_B";
+            var oppositeForYes = "NO";
+            var oppositeTokenForSideA = tick.SideBTokenId;
+            var oppositeTokenForYes = tick.NoTokenId;
+
+            // Determina se o modelo é YES/NO ou SIDE_A/SIDE_B
+            var isSideABModel = !string.IsNullOrWhiteSpace(tick.SideATokenId) &&
+                               !string.IsNullOrWhiteSpace(tick.SideBTokenId);
+
+            // Se prob subiu, compramos o lado observado do ticket
+            if (probabilityRose)
+            {
+                targetSide = tick.TargetSide;
+                targetTokenId = tick.TargetTokenId;
+                return;
+            }
+
+            // Se prob caiu, compramos o lado oposto
+            if (isSideABModel)
+            {
+                targetSide = string.Equals(tick.TargetSide, "SIDE_A", StringComparison.OrdinalIgnoreCase)
+                    ? oppositeForSideA
+                    : "SIDE_A";
+                targetTokenId = string.Equals(tick.TargetSide, "SIDE_A", StringComparison.OrdinalIgnoreCase)
+                    ? oppositeTokenForSideA
+                    : tick.SideATokenId;
+                return;
+            }
+
+            // Modelo YES/NO
+            targetSide = string.Equals(tick.TargetSide, "YES", StringComparison.OrdinalIgnoreCase)
+                ? oppositeForYes
+                : "YES";
+            targetTokenId = string.Equals(tick.TargetSide, "YES", StringComparison.OrdinalIgnoreCase)
+                ? oppositeTokenForYes
+                : tick.YesTokenId;
         }
 
         private static decimal Median(decimal[] sortedValues)

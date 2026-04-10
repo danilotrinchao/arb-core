@@ -7,21 +7,20 @@ using Arb.Core.Infrastructure.Redis;
 using Arb.Core.Infrastructure.Redis.SoccerCatalog;
 using Arb.Core.Infrastructure.Services;
 using Arb.Core.OddsIngestor.Worker.Options;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
-using System.Threading;
-using System.Linq;
 
 namespace Arb.Core.OddsIngestor.Worker
 {
     public class Worker : BackgroundService
     {
         private const string TeamToWinSemanticType = "TEAM_TO_WIN_YES_NO";
-        //private const int ActiveSlicePaddingHours = 6;
+        private const string TeamVsTeamSemanticType = "TEAM_VS_TEAM_WINNER";
 
         private readonly ILogger<Worker> _logger;
         private readonly IStreamPublisher _publisher;
@@ -289,9 +288,9 @@ namespace Arb.Core.OddsIngestor.Worker
                     _logger.LogInformation(
                         "Projected observed ticks to Polymarket. Sport={SportKey} RawSnapshots={RawCount} BuiltObservations={ObservationCount} ActiveCandidates={ActiveCandidates} Projected={ProjectedCount} Stream={Stream}",
                         sportKey,
-                        observedBuild.RawSnapshots,
-                        observations.Count,
-                        activeSlice.ActiveCandidates.Count,
+                        observedBuild.RawSnapshots.ToString(),
+                        observations.Count(),
+                        activeSlice.ActiveCandidates.Count(),
                         projectedPublished,
                         _polymarketObservationOptions.StreamName);
                 }
@@ -325,17 +324,17 @@ namespace Arb.Core.OddsIngestor.Worker
             _logger.LogWarning(
                 "Polymarket projection diagnostics. Sport={SportKey} RawSnapshots={RawSnapshots} BuiltObservations={BuiltObservations} MissingEventId={MissingEventId} MissingHomeTeam={MissingHomeTeam} MissingAwayTeam={MissingAwayTeam} MissingSelectionKey={MissingSelectionKey} MissingPrice={MissingPrice} RegistryCandidates={RegistryCandidates} ObservedTeams={ObservedTeams} TeamMatchedCandidates={TeamMatchedCandidates} ActiveCandidates={ActiveCandidates} WindowStart={WindowStart} WindowEnd={WindowEnd}",
                 sportKey,
-                observedBuild.RawSnapshots,
+                observedBuild.RawSnapshots.ToString(),
                 observations.Count,
                 observedBuild.MissingEventId,
                 observedBuild.MissingHomeTeam,
                 observedBuild.MissingAwayTeam,
                 observedBuild.MissingSelectionKey,
                 observedBuild.MissingPrice,
-                activeSlice.RegistryCandidates.Count,
-                activeSlice.ObservedTeams.Count,
-                activeSlice.TeamMatchedCandidates.Count,
-                activeSlice.ActiveCandidates.Count,
+                activeSlice.RegistryCandidates.Count(),
+                activeSlice.ObservedTeams.Count(),
+                activeSlice.TeamMatchedCandidates.Count(),
+                activeSlice.ActiveCandidates.Count(),
                 activeSlice.WindowStart,
                 activeSlice.WindowEnd);
 
@@ -403,6 +402,14 @@ namespace Arb.Core.OddsIngestor.Worker
                         string.Equals(
                             NormalizeTeam(x.ReferencedTeam),
                             normalizedObservedTeam,
+                            StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(
+                            NormalizeTeam(x.SideALabel),
+                            normalizedObservedTeam,
+                            StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(
+                            NormalizeTeam(x.SideBLabel),
+                            normalizedObservedTeam,
                             StringComparison.OrdinalIgnoreCase))
                     .ToArray();
 
@@ -417,30 +424,31 @@ namespace Arb.Core.OddsIngestor.Worker
         }
 
         private ActiveSliceDiagnostics BuildActivePolymarketCandidateSlice(
-    IReadOnlyCollection<ObservedSoccerSelectionSnapshot> observations)
+            IReadOnlyCollection<ObservedSoccerSelectionSnapshot> observations)
         {
-            // Obter todos os candidates do registry para contagem detalhada
             var allCandidates = _footballMarketRegistry
                 .GetQuoteCandidates()
                 .ToArray();
 
             var totalRegistry = allCandidates.Length;
-            var passedSemanticCount = allCandidates.Count(x =>
+            var passedYesNoCount = allCandidates.Count(x =>
                 string.Equals(x.SemanticType, TeamToWinSemanticType, StringComparison.OrdinalIgnoreCase));
+            var passedH2hCount = allCandidates.Count(x =>
+                string.Equals(x.SemanticType, TeamVsTeamSemanticType, StringComparison.OrdinalIgnoreCase));
             var missingReferencedTeamCount = allCandidates.Count(x => string.IsNullOrWhiteSpace(x.ReferencedTeam));
             var missingYesTokenCount = allCandidates.Count(x => string.IsNullOrWhiteSpace(x.YesTokenId));
             var missingNoTokenCount = allCandidates.Count(x => string.IsNullOrWhiteSpace(x.NoTokenId));
 
-            // Log diagnóstico do slice antes do filtro final
             _logger.LogInformation(
-                "Active slice diagnostics. RegistryTotal={Total} PassedSemantic={PassedSemantic} MissingReferencedTeam={MissingRef} MissingYesToken={MissingYes} MissingNoToken={MissingNo}",
+                "Active slice diagnostics. RegistryTotal={Total} PassedYesNo={YesNo} PassedH2h={H2h} MissingReferencedTeam={MissingRef} MissingYesToken={MissingYes} MissingNoToken={MissingNo}",
                 totalRegistry,
-                passedSemanticCount,
+                passedYesNoCount,
+                passedH2hCount,
                 missingReferencedTeamCount,
                 missingYesTokenCount,
                 missingNoTokenCount);
 
-            var registryCandidates = allCandidates
+            var yesNoCandidates = allCandidates
                 .Where(x =>
                     string.Equals(
                         x.SemanticType,
@@ -451,8 +459,35 @@ namespace Arb.Core.OddsIngestor.Worker
                     !string.IsNullOrWhiteSpace(x.NoTokenId))
                 .ToArray();
 
+            var h2hCandidates = allCandidates
+                .Where(x =>
+                    string.Equals(
+                        x.SemanticType,
+                        TeamVsTeamSemanticType,
+                        StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(x.SideALabel) &&
+                    !string.IsNullOrWhiteSpace(x.SideBLabel) &&
+                    !string.IsNullOrWhiteSpace(x.SideATokenId) &&
+                    !string.IsNullOrWhiteSpace(x.SideBTokenId))
+                .ToArray();
+
+            var registryCandidates = yesNoCandidates.Concat(h2hCandidates).ToArray();
+
             var observedTeams = observations
-                .SelectMany(x => new[] { x.HomeTeam, x.AwayTeam })
+                .SelectMany(x =>
+                {
+                    var teams = new List<string>();
+
+                    if (!string.IsNullOrWhiteSpace(x.HomeTeam))
+                        teams.Add(x.HomeTeam);
+                    if (!string.IsNullOrWhiteSpace(x.AwayTeam))
+                        teams.Add(x.AwayTeam);
+
+                    if (!string.IsNullOrWhiteSpace(x.DirectObservedTeam))
+                        teams.Add(x.DirectObservedTeam);
+
+                    return teams;
+                })
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Select(NormalizeTeam)
                 .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -462,13 +497,20 @@ namespace Arb.Core.OddsIngestor.Worker
 
             var teamMatchedCandidates = registryCandidates
                 .Where(x =>
+                    (!string.IsNullOrWhiteSpace(x.ReferencedTeam) &&
                     observedTeams.Contains(
                         NormalizeTeam(x.ReferencedTeam),
-                        StringComparer.OrdinalIgnoreCase))
+                        StringComparer.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrWhiteSpace(x.SideALabel) &&
+                    observedTeams.Contains(
+                        NormalizeTeam(x.SideALabel),
+                        StringComparer.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrWhiteSpace(x.SideBLabel) &&
+                    observedTeams.Contains(
+                        NormalizeTeam(x.SideBLabel),
+                        StringComparer.OrdinalIgnoreCase)))
                 .ToArray();
 
-            // Sem filtro de janela temporal — todos os candidatos que batem
-            // por nome de time são considerados ativos.
             return new ActiveSliceDiagnostics
             {
                 RegistryCandidates = registryCandidates,
@@ -479,6 +521,7 @@ namespace Arb.Core.OddsIngestor.Worker
                 WindowEnd = null
             };
         }
+
         private ObservedBuildResult BuildObservedSoccerSelectionSnapshots(
             IReadOnlyCollection<object> rawSnapshots,
             string sportKey,
@@ -494,46 +537,18 @@ namespace Arb.Core.OddsIngestor.Worker
 
             foreach (var raw in rawSnapshots)
             {
-                var eventId =
-                    ReadString(raw, "EventId", "Id", "EventKey") ??
-                    string.Empty;
-
-                var bookmakerKey =
-                    ReadString(raw, "BookmakerKey", "Bookmaker", "BookmakerName");
-
-                var homeTeam =
-                    ReadString(raw, "HomeTeam", "HomeName", "Home") ??
-                    string.Empty;
-
-                var awayTeam =
-                    ReadString(raw, "AwayTeam", "AwayName", "Away") ??
-                    string.Empty;
-
-                var selectionKey =
-                    ReadString(raw, "SelectionKey", "Selection", "OutcomeKey") ??
-                    string.Empty;
-
-                var price =
-                    ReadDecimal(raw, "OddsDecimal", "Price", "Odds", "DecimalOdds");
-
-                var commenceTime =
-                    ReadDateIsoString(raw, "CommenceTime", "StartTime", "EventStartTime");
+                var eventId = ReadString(raw, "EventId", "Id", "EventKey") ?? string.Empty;
+                var bookmakerKey = ReadString(raw, "BookmakerKey", "Bookmaker", "BookmakerName");
+                var homeTeam = ReadString(raw, "HomeTeam", "HomeName", "Home") ?? string.Empty;
+                var awayTeam = ReadString(raw, "AwayTeam", "AwayName", "Away") ?? string.Empty;
+                var selectionKey = ReadString(raw, "SelectionKey", "Selection", "OutcomeKey") ?? string.Empty;
+                var price = ReadDecimal(raw, "OddsDecimal", "Price", "Odds", "DecimalOdds");
+                var commenceTime = ReadDateIsoString(raw, "CommenceTime", "StartTime", "EventStartTime");
+                var directObservedTeam = ReadString(raw, "DirectObservedTeam", "SideLabel", "Participant");
 
                 if (string.IsNullOrWhiteSpace(eventId))
                 {
                     buildResult.MissingEventId++;
-                    continue;
-                }
-
-                if (string.IsNullOrWhiteSpace(homeTeam))
-                {
-                    buildResult.MissingHomeTeam++;
-                    continue;
-                }
-
-                if (string.IsNullOrWhiteSpace(awayTeam))
-                {
-                    buildResult.MissingAwayTeam++;
                     continue;
                 }
 
@@ -549,6 +564,31 @@ namespace Arb.Core.OddsIngestor.Worker
                     continue;
                 }
 
+                if (string.Equals(selectionKey, "HOME", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(selectionKey, "AWAY", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (string.IsNullOrWhiteSpace(homeTeam))
+                    {
+                        buildResult.MissingHomeTeam++;
+                        continue;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(awayTeam))
+                    {
+                        buildResult.MissingAwayTeam++;
+                        continue;
+                    }
+                }
+                else if (string.Equals(selectionKey, "SIDE_A", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(selectionKey, "SIDE_B", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (string.IsNullOrWhiteSpace(directObservedTeam))
+                    {
+                        buildResult.MissingHomeTeam++;
+                        continue;
+                    }
+                }
+
                 result.Add(new ObservedSoccerSelectionSnapshot
                 {
                     EventId = eventId,
@@ -559,7 +599,8 @@ namespace Arb.Core.OddsIngestor.Worker
                     HomeTeam = homeTeam,
                     AwayTeam = awayTeam,
                     SelectionKey = selectionKey,
-                    Price = price.Value
+                    Price = price.Value,
+                    DirectObservedTeam = directObservedTeam
                 });
             }
 
@@ -597,30 +638,20 @@ namespace Arb.Core.OddsIngestor.Worker
                 return !string.IsNullOrWhiteSpace(team);
             }
 
-            return false;
-        }
-
-        private static bool TryParseDate(string? value, out DateTimeOffset date)
-        {
-            if (string.IsNullOrWhiteSpace(value))
+            if (string.Equals(observation.SelectionKey, "SIDE_A", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(observation.SelectionKey, "SIDE_B", StringComparison.OrdinalIgnoreCase))
             {
-                date = default;
-                return false;
+                team = observation.DirectObservedTeam;
+                return !string.IsNullOrWhiteSpace(team);
             }
 
-            return DateTimeOffset.TryParse(
-                value,
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-                out date);
+            return false;
         }
 
         private static string NormalizeTeam(string? value)
         {
             if (string.IsNullOrWhiteSpace(value))
-            {
                 return string.Empty;
-            }
 
             var text = RemoveDiacritics(value)
                 .ToLowerInvariant()
@@ -640,20 +671,14 @@ namespace Arb.Core.OddsIngestor.Worker
 
             foreach (var ch in text)
             {
-                if (char.IsLetterOrDigit(ch) || ch == ' ')
-                {
-                    sb.Append(ch);
-                }
-                else
-                {
-                    sb.Append(' ');
-                }
+                sb.Append(char.IsLetterOrDigit(ch) || ch == ' ' ? ch : ' ');
             }
 
             return string.Join(
                 " ",
                 sb.ToString()
-                    .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+                    .Split(' ', StringSplitOptions.RemoveEmptyEntries |
+                                StringSplitOptions.TrimEntries));
         }
 
         private static string RemoveDiacritics(string text)
@@ -663,8 +688,8 @@ namespace Arb.Core.OddsIngestor.Worker
 
             foreach (var ch in normalized)
             {
-                var category = CharUnicodeInfo.GetUnicodeCategory(ch);
-                if (category != UnicodeCategory.NonSpacingMark)
+                if (CharUnicodeInfo.GetUnicodeCategory(ch) !=
+                    UnicodeCategory.NonSpacingMark)
                 {
                     sb.Append(ch);
                 }
@@ -673,128 +698,102 @@ namespace Arb.Core.OddsIngestor.Worker
             return sb.ToString().Normalize(NormalizationForm.FormC);
         }
 
-        private static string? ReadString(object source, params string[] propertyNames)
+        private static string? ReadString(object obj, params string[] fieldNames)
         {
-            var value = ReadPropertyValue(source, propertyNames);
-
-            if (value is null)
+            foreach (var fieldName in fieldNames)
             {
-                return null;
-            }
+                var property = obj?.GetType()?.GetProperty(
+                    fieldName,
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase);
 
-            return value switch
-            {
-                string s when !string.IsNullOrWhiteSpace(s) => s.Trim(),
-                _ => value.ToString()?.Trim()
-            };
-        }
-
-        private static decimal? ReadDecimal(object source, params string[] propertyNames)
-        {
-            var value = ReadPropertyValue(source, propertyNames);
-
-            if (value is null)
-            {
-                return null;
-            }
-
-            return value switch
-            {
-                decimal d => d,
-                double d => Convert.ToDecimal(d, CultureInfo.InvariantCulture),
-                float f => Convert.ToDecimal(f, CultureInfo.InvariantCulture),
-                int i => i,
-                long l => l,
-                string s when decimal.TryParse(
-                    s,
-                    NumberStyles.Any,
-                    CultureInfo.InvariantCulture,
-                    out var parsed) => parsed,
-                _ => null
-            };
-        }
-
-        private static string? ReadDateIsoString(object source, params string[] propertyNames)
-        {
-            var value = ReadPropertyValue(source, propertyNames);
-
-            if (value is null)
-            {
-                return null;
-            }
-
-            return value switch
-            {
-                DateTime dt => dt.ToUniversalTime().ToString("O"),
-                DateTimeOffset dto => dto.ToUniversalTime().ToString("O"),
-                string s when !string.IsNullOrWhiteSpace(s) => s.Trim(),
-                _ => value.ToString()
-            };
-        }
-
-        private static object? ReadPropertyValue(object source, params string[] propertyNames)
-        {
-            var type = source.GetType();
-
-            foreach (var name in propertyNames)
-            {
-                var prop = type.GetProperty(
-                    name,
-                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-
-                if (prop is null)
+                if (property != null && property.CanRead)
                 {
-                    continue;
+                    var value = property.GetValue(obj) as string;
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        return value;
+                    }
                 }
-
-                return prop.GetValue(source);
             }
 
             return null;
         }
 
-        private sealed class SportPollState
+        private static decimal? ReadDecimal(object obj, params string[] fieldNames)
         {
-            public DateTime? LastPolledAtUtc { get; set; }
+            foreach (var fieldName in fieldNames)
+            {
+                var property = obj?.GetType()?.GetProperty(
+                    fieldName,
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase);
 
-            public DateTime? NearestEventCommenceTimeUtc { get; set; }
+                if (property != null && property.CanRead)
+                {
+                    try
+                    {
+                        var value = property.GetValue(obj);
+                        if (value is decimal dec)
+                            return dec;
+                        else if (value is double dbl)
+                            return (decimal)dbl;
+                        else if (value is int i)
+                            return (decimal)i;
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            return null;
         }
 
-        private sealed class ObservedBuildResult
+        private static string? ReadDateIsoString(object obj, params string[] fieldNames)
         {
-            public int RawSnapshots { get; set; }
+            foreach (var fieldName in fieldNames)
+            {
+                var property = obj?.GetType()?.GetProperty(
+                    fieldName,
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase);
 
-            public int MissingEventId { get; set; }
+                if (property != null && property.CanRead)
+                {
+                    var value = property.GetValue(obj);
+                    if (value is string str && !string.IsNullOrWhiteSpace(str))
+                        return str;
+                    else if (value is DateTime dt)
+                        return dt.ToString("O");
+                }
+            }
 
-            public int MissingHomeTeam { get; set; }
-
-            public int MissingAwayTeam { get; set; }
-
-            public int MissingSelectionKey { get; set; }
-
-            public int MissingPrice { get; set; }
-
-            public IReadOnlyCollection<ObservedSoccerSelectionSnapshot> Observations { get; set; } =
-                Array.Empty<ObservedSoccerSelectionSnapshot>();
+            return null;
         }
+    }
 
-        private sealed class ActiveSliceDiagnostics
-        {
-            public IReadOnlyCollection<FootballQuoteCandidate> RegistryCandidates { get; set; } =
-                Array.Empty<FootballQuoteCandidate>();
+    internal class SportPollState
+    {
+        public DateTime? LastPolledAtUtc { get; set; }
+        public DateTime? NearestEventCommenceTimeUtc { get; set; }
+    }
 
-            public IReadOnlyCollection<string> ObservedTeams { get; set; } =
-                Array.Empty<string>();
+    internal class ObservedBuildResult
+    {
+        public int RawSnapshots { get; set; }
+        public int MissingEventId { get; set; }
+        public int MissingHomeTeam { get; set; }
+        public int MissingAwayTeam { get; set; }
+        public int MissingSelectionKey { get; set; }
+        public int MissingPrice { get; set; }
+        public ObservedSoccerSelectionSnapshot[] Observations { get; set; } = Array.Empty<ObservedSoccerSelectionSnapshot>();
+    }
 
-            public IReadOnlyCollection<FootballQuoteCandidate> TeamMatchedCandidates { get; set; } =
-                Array.Empty<FootballQuoteCandidate>();
-
-            public IReadOnlyCollection<FootballQuoteCandidate> ActiveCandidates { get; set; } =
-                Array.Empty<FootballQuoteCandidate>();
-
-            public string? WindowStart { get; set; }
-
-            public string? WindowEnd { get; set; }
-        }
+    internal class ActiveSliceDiagnostics
+    {
+        public FootballQuoteCandidate[] RegistryCandidates { get; set; } = Array.Empty<FootballQuoteCandidate>();
+        public string[] ObservedTeams { get; set; } = Array.Empty<string>();
+        public FootballQuoteCandidate[] TeamMatchedCandidates { get; set; } = Array.Empty<FootballQuoteCandidate>();
+        public FootballQuoteCandidate[] ActiveCandidates { get; set; } = Array.Empty<FootballQuoteCandidate>();
+        public string? WindowStart { get; set; }
+        public string? WindowEnd { get; set; }
     }
 }

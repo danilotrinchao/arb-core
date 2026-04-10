@@ -105,38 +105,83 @@ namespace Arb.Core.Application.UseCases.MarketData
             }
         }
 
+        /// <summary>
+        /// Materializa candidate a partir de market catalog, suportando múltiplas combinações de outcome roles.
+        /// Compatível com:
+        /// - YES/NO (futebol legado) — prioridade 1
+        /// - SIDE_A/SIDE_B (NBA H2H, futuro) — prioridade 2
+        /// </summary>
         private static FootballQuoteCandidate? ToQuoteCandidate(FootballCatalogMarketV1 market)
         {
+            // Prioridade 1: tenta YES/NO primeiro (compatibilidade com futebol legado)
             var yes = market.Outcomes.FirstOrDefault(x =>
                 string.Equals(x.BinaryOutcomeRole, "YES", StringComparison.OrdinalIgnoreCase));
 
             var no = market.Outcomes.FirstOrDefault(x =>
                 string.Equals(x.BinaryOutcomeRole, "NO", StringComparison.OrdinalIgnoreCase));
 
-            if (yes is null || no is null)
+            // Se encontrou YES/NO com tokens válidos, retorna candidate YES/NO
+            if (yes is not null && no is not null &&
+                !string.IsNullOrWhiteSpace(yes.TokenId) &&
+                !string.IsNullOrWhiteSpace(no.TokenId))
             {
-                return null;
+                return new FootballQuoteCandidate
+                {
+                    CatalogId = market.CatalogId,
+                    ConditionId = market.ConditionId,
+                    Question = market.Question,
+                    MarketSlug = market.MarketSlug,
+                    GameStartTime = market.GameStartTime,
+                    SemanticType = market.SemanticType,
+                    ReferencedTeam = market.ReferencedTeam,
+                    YesTokenId = yes.TokenId,
+                    NoTokenId = no.TokenId,
+                    OutcomeRoleA = "YES",
+                    OutcomeRoleB = "NO",
+                    MatchedGammaId = market.MatchedGammaId,
+                    MatchedGammaStartTime = market.MatchedGammaStartTime
+                };
             }
 
-            if (string.IsNullOrWhiteSpace(yes.TokenId) || string.IsNullOrWhiteSpace(no.TokenId))
+            // Prioridade 2: fallback para SIDE_A/SIDE_B (NBA H2H)
+            var sideA = market.Outcomes.FirstOrDefault(x =>
+                string.Equals(x.BinaryOutcomeRole, "SIDE_A", StringComparison.OrdinalIgnoreCase));
+
+            var sideB = market.Outcomes.FirstOrDefault(x =>
+                string.Equals(x.BinaryOutcomeRole, "SIDE_B", StringComparison.OrdinalIgnoreCase));
+
+            // Se encontrou SIDE_A/SIDE_B com tokens válidos, retorna candidate H2H
+            if (sideA is not null && sideB is not null &&
+                !string.IsNullOrWhiteSpace(sideA.TokenId) &&
+                !string.IsNullOrWhiteSpace(sideB.TokenId))
             {
-                return null;
+                return new FootballQuoteCandidate
+                {
+                    CatalogId = market.CatalogId,
+                    ConditionId = market.ConditionId,
+                    Question = market.Question,
+                    MarketSlug = market.MarketSlug,
+                    GameStartTime = market.GameStartTime,
+                    SemanticType = market.SemanticType,
+                    ReferencedTeam = market.ReferencedTeam,
+                    // Mapeamento para compatibilidade com o contrato legado:
+                    // SIDE_A -> YesTokenId, SIDE_B -> NoTokenId
+                    YesTokenId = sideA.TokenId,
+                    NoTokenId = sideB.TokenId,
+                    SideATokenId = sideA.TokenId,
+                    SideBTokenId = sideB.TokenId,
+                    // Preenche rótulos mínimos necessários para H2H
+                    SideALabel = string.IsNullOrWhiteSpace(sideA.OutcomeLabel) ? null : sideA.OutcomeLabel,
+                    SideBLabel = string.IsNullOrWhiteSpace(sideB.OutcomeLabel) ? null : sideB.OutcomeLabel,
+                    OutcomeRoleA = "SIDE_A",
+                    OutcomeRoleB = "SIDE_B",
+                    MatchedGammaId = market.MatchedGammaId,
+                    MatchedGammaStartTime = market.MatchedGammaStartTime
+                };
             }
 
-            return new FootballQuoteCandidate
-            {
-                CatalogId = market.CatalogId,
-                ConditionId = market.ConditionId,
-                Question = market.Question,
-                MarketSlug = market.MarketSlug,
-                GameStartTime = market.GameStartTime,
-                SemanticType = market.SemanticType,
-                ReferencedTeam = market.ReferencedTeam,
-                YesTokenId = yes.TokenId,
-                NoTokenId = no.TokenId,
-                MatchedGammaId = market.MatchedGammaId,
-                MatchedGammaStartTime = market.MatchedGammaStartTime
-            };
+            // Nenhuma combinação válida encontrada
+            return null;
         }
     }
 }

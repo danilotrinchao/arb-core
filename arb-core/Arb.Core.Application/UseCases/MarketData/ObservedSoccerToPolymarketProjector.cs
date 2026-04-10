@@ -1,23 +1,18 @@
 ﻿using Arb.Core.Application.Abstractions.MarketData;
 using Arb.Core.Application.Request;
 using Arb.Core.Contracts.Common.PolymarketObservation;
+using Microsoft.Extensions.Logging;
 using System.Globalization;
 using System.Text;
-using Microsoft.Extensions.Logging;
-using System.Linq;
 
 namespace Arb.Core.Application.UseCases.MarketData
 {
     public class ObservedSoccerToPolymarketProjector : IObservedSoccerToPolymarketProjector
     {
         private const string TeamToWinSemanticType = "TEAM_TO_WIN_YES_NO";
+        private const string TeamVsTeamSemanticType = "TEAM_VS_TEAM_WINNER";
 
-        // Probabilidade mínima aceitável após conversão
-        // Odds acima de 100 (prob < 0.01) são ruído ou erro de dados
         private const decimal MinValidProbability = 0.01m;
-
-        // Probabilidade máxima aceitável
-        // Odds abaixo de 1.01 (prob > 0.99) são praticamente certezas — fora do escopo
         private const decimal MaxValidProbability = 0.99m;
 
         private readonly IFootballMarketRegistry _registry;
@@ -50,9 +45,6 @@ namespace Arb.Core.Application.UseCases.MarketData
 
             foreach (var observation in observations)
             {
-                // Converte odds decimal para probabilidade implícita
-                // antes de qualquer outra validação — se a conversão falhar,
-                // não faz sentido projetar esse tick
                 if (!TryConvertToImpliedProbability(observation.Price, out var impliedProbability))
                 {
                     discardedPriceInvalid++;
@@ -72,15 +64,13 @@ namespace Arb.Core.Application.UseCases.MarketData
                     continue;
                 }
 
-                var matchingCandidates = activeCandidates
-                    .Where(x =>
-                        string.Equals(
-                            NormalizeTeam(x.ReferencedTeam),
-                            normalizedObservedTeam,
-                            StringComparison.OrdinalIgnoreCase))
-                    .ToArray();
+                var matchingCandidates = GetMatchingCandidates(
+                    activeCandidates,
+                    observation.SelectionKey,
+                    normalizedObservedTeam,
+                    out var observedSide);
 
-                if (matchingCandidates.Length == 0)
+                if (matchingCandidates.Count == 0)
                 {
                     discardedTeamMismatch++;
                     continue;
@@ -88,6 +78,13 @@ namespace Arb.Core.Application.UseCases.MarketData
 
                 foreach (var candidate in matchingCandidates)
                 {
+                    ResolveTargetSide(
+                        candidate,
+                        observation.SelectionKey,
+                        normalizedObservedTeam,
+                        out var targetSide,
+                        out var targetTokenId);
+
                     result.Add(new PolymarketObservedTickV1
                     {
                         ObservationId = BuildObservationId(observation, candidate.ConditionId),
@@ -99,8 +96,6 @@ namespace Arb.Core.Application.UseCases.MarketData
                         SelectionKey = observation.SelectionKey,
                         ObservedTeam = observedTeam,
 
-                        // Probabilidade implícita (0 a 1) em vez de odds decimal
-                        // Compatível com a escala da Polymarket CLOB
                         ObservedPrice = impliedProbability,
 
                         PolymarketConditionId = candidate.ConditionId,
@@ -110,15 +105,21 @@ namespace Arb.Core.Application.UseCases.MarketData
                         PolymarketSemanticType = candidate.SemanticType,
                         PolymarketReferencedTeam = candidate.ReferencedTeam,
 
-                        TargetSide = "YES",
-                        TargetTokenId = candidate.YesTokenId,
+                        TargetSide = targetSide,
+                        TargetTokenId = targetTokenId,
                         YesTokenId = candidate.YesTokenId,
                         NoTokenId = candidate.NoTokenId,
+                        SideATokenId = candidate.SideATokenId,
+                        SideBTokenId = candidate.SideBTokenId,
+                        OutcomeRoleA = candidate.OutcomeRoleA,
+                        OutcomeRoleB = candidate.OutcomeRoleB,
+                        SideALabel = candidate.SideALabel,
+                        SideBLabel = candidate.SideBLabel,
 
                         MatchedGammaId = candidate.MatchedGammaId,
                         MatchedGammaStartTime = candidate.MatchedGammaStartTime,
 
-                        ProjectionReasonCode = "ACTIVE_SLICE_DIRECT_TEAM_TO_WIN_YES_MAPPING"
+                        ProjectionReasonCode = DetermineProjectionReason(candidate.SemanticType, targetSide)
                     });
 
                     ticksGenerated++;
@@ -127,15 +128,11 @@ namespace Arb.Core.Application.UseCases.MarketData
                 }
             }
 
-            // Deduplicação por ObservationId
-            // ObservationId inclui BookmakerKey, então bookmakers distintos
-            // geram IDs distintos e chegam separados ao engine
             var deduped = result
                 .GroupBy(x => x.ObservationId, StringComparer.OrdinalIgnoreCase)
                 .Select(x => x.First())
                 .ToArray();
 
-            // Log diagnóstico por execução do projector
             _logger.LogInformation(
                 "Projector run. Observations={Obs} DiscardedSelectionKey={SelInvalid} DiscardedPriceInvalid={PriceInvalid} DiscardedTeamEmpty={TeamEmpty} DiscardedTeamMismatch={TeamMismatch} TicksGenerated={Ticks} PreviewConditions={Preview}",
                 observationsReceived,
@@ -150,23 +147,150 @@ namespace Arb.Core.Application.UseCases.MarketData
         }
 
         /// <summary>
-        /// Converte odds decimal para probabilidade implícita.
-        /// Retorna false se a odd for inválida (zero, negativa, ou resultado fora do range).
+        /// Busca candidates que correspondem ao time observado normalizado.
+        /// Para TEAM_TO_WIN_YES_NO (futebol): compara com ReferencedTeam.
+        /// Para TEAM_VS_TEAM_WINNER (NBA H2H): compara com SideALabel e SideBLabel.
         /// </summary>
+        private IReadOnlyCollection<FootballQuoteCandidate> GetMatchingCandidates(
+            IReadOnlyCollection<FootballQuoteCandidate> activeCandidates,
+            string selectionKey,
+            string normalizedObservedTeam,
+            out string observedSide)
+        {
+            observedSide = string.Empty;
+            var matches = new List<FootballQuoteCandidate>();
+
+            foreach (var candidate in activeCandidates)
+            {
+                // Futebol: YES/NO — compara com ReferencedTeam
+                if (!string.Equals(
+                    candidate.SemanticType,
+                    TeamVsTeamSemanticType,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    // Validação: SelectionKey deve ser HOME ou AWAY para futebol
+                    if (!string.Equals(selectionKey, "HOME", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(selectionKey, "AWAY", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    if (string.Equals(
+                        NormalizeTeam(candidate.ReferencedTeam),
+                        normalizedObservedTeam,
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        matches.Add(candidate);
+                    }
+
+                    continue;
+                }
+
+                // NBA: SIDE_A/SIDE_B — compara com SideALabel e SideBLabel
+                // Validação: SelectionKey deve ser SIDE_A ou SIDE_B para NBA
+                if (!string.Equals(selectionKey, "SIDE_A", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(selectionKey, "SIDE_B", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var normalizedSideA = NormalizeTeam(candidate.SideALabel);
+                var normalizedSideB = NormalizeTeam(candidate.SideBLabel);
+
+                if (string.Equals(normalizedSideA, normalizedObservedTeam, StringComparison.OrdinalIgnoreCase))
+                {
+                    matches.Add(candidate);
+                    observedSide = "SIDE_A";
+                    continue;
+                }
+
+                if (string.Equals(normalizedSideB, normalizedObservedTeam, StringComparison.OrdinalIgnoreCase))
+                {
+                    matches.Add(candidate);
+                    observedSide = "SIDE_B";
+                }
+            }
+
+            return matches.ToArray();
+        }
+
+        /// <summary>
+        /// Determina TargetSide e TargetTokenId baseado no semantic type, selection key
+        /// e no time observado normalizado.
+        /// 
+        /// Para YES/NO (futebol): time observado → YES é o alvo
+        /// Para SIDE_A/SIDE_B (NBA H2H):
+        ///   - time corresponde a SideALabel → SIDE_A é o alvo
+        ///   - time corresponde a SideBLabel → SIDE_B é o alvo
+        /// </summary>
+        private static void ResolveTargetSide(
+            FootballQuoteCandidate candidate,
+            string selectionKey,
+            string normalizedObservedTeam,
+            out string targetSide,
+            out string targetTokenId)
+        {
+            // NBA H2H: SIDE_A/SIDE_B
+            if (string.Equals(
+                candidate.SemanticType,
+                TeamVsTeamSemanticType,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                var normalizedSideA = NormalizeTeam(candidate.SideALabel);
+                var normalizedSideB = NormalizeTeam(candidate.SideBLabel);
+
+                if (string.Equals(normalizedSideA, normalizedObservedTeam, StringComparison.OrdinalIgnoreCase))
+                {
+                    targetSide = "SIDE_A";
+                    targetTokenId = candidate.SideATokenId ?? string.Empty;
+                    return;
+                }
+
+                if (string.Equals(normalizedSideB, normalizedObservedTeam, StringComparison.OrdinalIgnoreCase))
+                {
+                    targetSide = "SIDE_B";
+                    targetTokenId = candidate.SideBTokenId ?? string.Empty;
+                    return;
+                }
+
+                // Fallback (não deve acontecer se GetMatchingCandidates foi chamado antes)
+                targetSide = "SIDE_A";
+                targetTokenId = candidate.SideATokenId ?? string.Empty;
+                return;
+            }
+
+            // Fallback: modelo YES/NO (legado futebol)
+            // Observação de um time → YES é o alvo
+            targetSide = "YES";
+            targetTokenId = candidate.YesTokenId;
+        }
+
+        /// <summary>
+        /// Determina o código de razão da projeção baseado no semantic type e no lado observado.
+        /// </summary>
+        private static string DetermineProjectionReason(string semanticType, string targetSide)
+        {
+            if (string.Equals(semanticType, TeamVsTeamSemanticType, StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Equals(targetSide, "SIDE_A", StringComparison.OrdinalIgnoreCase)
+                    ? "ACTIVE_SLICE_DIRECT_H2H_SIDE_A_MAPPING"
+                    : "ACTIVE_SLICE_DIRECT_H2H_SIDE_B_MAPPING";
+            }
+
+            return "ACTIVE_SLICE_DIRECT_TEAM_TO_WIN_YES_MAPPING";
+        }
+
         private static bool TryConvertToImpliedProbability(
             decimal oddsDecimal,
             out decimal impliedProbability)
         {
             impliedProbability = 0m;
 
-            // Odds decimal deve ser maior que 1.0 por definição
-            // Odds = 1.0 significaria retorno zero (impossível em casas sérias)
             if (oddsDecimal <= 1.0m)
                 return false;
 
             impliedProbability = Math.Round(1m / oddsDecimal, 6, MidpointRounding.AwayFromZero);
 
-            // Valida o resultado — fora do range indica dado corrompido
             return impliedProbability >= MinValidProbability &&
                    impliedProbability <= MaxValidProbability;
         }
@@ -175,7 +299,6 @@ namespace Arb.Core.Application.UseCases.MarketData
             ObservedSoccerSelectionSnapshot observation,
             string conditionId)
         {
-            // BookmakerKey incluído para garantir que cada fonte gera um tick distinto
             return string.Join(
                 "::",
                 observation.EventId,
@@ -191,6 +314,7 @@ namespace Arb.Core.Application.UseCases.MarketData
         {
             team = string.Empty;
 
+            // Futebol: HOME/AWAY
             if (string.Equals(
                     observation.SelectionKey, "HOME",
                     StringComparison.OrdinalIgnoreCase))
@@ -207,35 +331,19 @@ namespace Arb.Core.Application.UseCases.MarketData
                 return !string.IsNullOrWhiteSpace(team);
             }
 
-            return false;
-        }
-
-        private static bool IsKickoffCompatible(
-            string? observedCommenceTime,
-            string? polymarketGameStartTime)
-        {
-            // Sem filtro de data — o matching é feito exclusivamente por nome de time.
-            // Dois jogos do mesmo time em campeonatos diferentes são tratados como
-            // oportunidades independentes — cada um com seu próprio conditionId
-            // e posição separada no banco.
-            // A data correta do jogo viaja no tick via MatchedGammaStartTime
-            // e é gravada em CommenceTime na posição pelo executor.
-            return true;
-        }
-
-        private static bool TryParseDate(string? value, out DateTimeOffset date)
-        {
-            if (string.IsNullOrWhiteSpace(value))
+            // NBA: SIDE_A/SIDE_B
+            if (string.Equals(
+                    observation.SelectionKey, "SIDE_A",
+                    StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(
+                    observation.SelectionKey, "SIDE_B",
+                    StringComparison.OrdinalIgnoreCase))
             {
-                date = default;
-                return false;
+                team = observation.DirectObservedTeam;
+                return !string.IsNullOrWhiteSpace(team);
             }
 
-            return DateTimeOffset.TryParse(
-                value,
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-                out date);
+            return false;
         }
 
         private static string NormalizeTeam(string? value)
