@@ -31,15 +31,28 @@ namespace Arb.Core.Infrastructure.Redis.SoccerCatalog
         public async Task<FootballQuoteEligibleSnapshotV1?> GetCurrentSnapshotAsync(
             CancellationToken cancellationToken)
         {
+            return await GetSnapshotAsync(_options.SnapshotKey, cancellationToken);
+        }
+
+        public async Task<FootballQuoteEligibleSnapshotV1?> GetNbaSnapshotAsync(
+            CancellationToken cancellationToken)
+        {
+            return await GetSnapshotAsync(_options.NbaSnapshotKey, cancellationToken);
+        }
+
+        private async Task<FootballQuoteEligibleSnapshotV1?> GetSnapshotAsync(
+            string key,
+            CancellationToken cancellationToken)
+        {
             var db = _connectionFactory.GetDatabase();
 
-            var raw = await db.StringGetAsync(_options.SnapshotKey).WaitAsync(cancellationToken);
+            var raw = await db.StringGetAsync(key).WaitAsync(cancellationToken);
 
             if (raw.IsNullOrEmpty)
             {
                 _logger.LogWarning(
-                    "Football catalog snapshot key not found. Key={Key}",
-                    _options.SnapshotKey);
+                    "Catalog snapshot key not found. Key={Key}",
+                    key);
 
                 return null;
             }
@@ -49,7 +62,6 @@ namespace Arb.Core.Infrastructure.Redis.SoccerCatalog
                 JsonOptions);
         }
 
-        // Migrado de ExecuteAsync("XREVRANGE") + TryAsArray para StreamRangeAsync nativo.
         public async Task<string> GetLatestCatalogStreamIdAsync(
             CancellationToken cancellationToken)
         {
@@ -72,9 +84,6 @@ namespace Arb.Core.Infrastructure.Redis.SoccerCatalog
             return string.IsNullOrWhiteSpace(latestId) ? "0-0" : latestId;
         }
 
-        // Migrado de ExecuteAsync("XREAD", "BLOCK", ...) + ParseXRead para StreamReadAsync nativo.
-        // BLOCK removido: segurar a conexão com BLOCK + WaitAsync(cancellationToken) é a causa
-        // raiz dos RedisTimeoutException. O polling com delay no hosted service substitui o BLOCK.
         public async Task<IReadOnlyCollection<FootballCatalogStreamEvent>> ReadCatalogEventsAsync(
             string afterStreamId,
             CancellationToken cancellationToken)

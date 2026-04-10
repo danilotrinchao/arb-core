@@ -53,6 +53,22 @@ namespace Arb.Core.Application.UseCases.MarketData
             }
         }
 
+        public void MergeAdditionalMarkets(IEnumerable<FootballCatalogMarketV1> markets)
+        {
+            ArgumentNullException.ThrowIfNull(markets);
+
+            lock (_sync)
+            {
+                foreach (var market in markets)
+                {
+                    if (!string.IsNullOrWhiteSpace(market.ConditionId))
+                    {
+                        _byConditionId[market.ConditionId] = market;
+                    }
+                }
+            }
+        }
+
         public FootballQuoteEligibleSnapshotV1? GetSnapshot()
         {
             lock (_sync)
@@ -105,22 +121,14 @@ namespace Arb.Core.Application.UseCases.MarketData
             }
         }
 
-        /// <summary>
-        /// Materializa candidate a partir de market catalog, suportando múltiplas combinações de outcome roles.
-        /// Compatível com:
-        /// - YES/NO (futebol legado) — prioridade 1
-        /// - SIDE_A/SIDE_B (NBA H2H, futuro) — prioridade 2
-        /// </summary>
         private static FootballQuoteCandidate? ToQuoteCandidate(FootballCatalogMarketV1 market)
         {
-            // Prioridade 1: tenta YES/NO primeiro (compatibilidade com futebol legado)
             var yes = market.Outcomes.FirstOrDefault(x =>
                 string.Equals(x.BinaryOutcomeRole, "YES", StringComparison.OrdinalIgnoreCase));
 
             var no = market.Outcomes.FirstOrDefault(x =>
                 string.Equals(x.BinaryOutcomeRole, "NO", StringComparison.OrdinalIgnoreCase));
 
-            // Se encontrou YES/NO com tokens válidos, retorna candidate YES/NO
             if (yes is not null && no is not null &&
                 !string.IsNullOrWhiteSpace(yes.TokenId) &&
                 !string.IsNullOrWhiteSpace(no.TokenId))
@@ -143,14 +151,12 @@ namespace Arb.Core.Application.UseCases.MarketData
                 };
             }
 
-            // Prioridade 2: fallback para SIDE_A/SIDE_B (NBA H2H)
             var sideA = market.Outcomes.FirstOrDefault(x =>
                 string.Equals(x.BinaryOutcomeRole, "SIDE_A", StringComparison.OrdinalIgnoreCase));
 
             var sideB = market.Outcomes.FirstOrDefault(x =>
                 string.Equals(x.BinaryOutcomeRole, "SIDE_B", StringComparison.OrdinalIgnoreCase));
 
-            // Se encontrou SIDE_A/SIDE_B com tokens válidos, retorna candidate H2H
             if (sideA is not null && sideB is not null &&
                 !string.IsNullOrWhiteSpace(sideA.TokenId) &&
                 !string.IsNullOrWhiteSpace(sideB.TokenId))
@@ -164,13 +170,10 @@ namespace Arb.Core.Application.UseCases.MarketData
                     GameStartTime = market.GameStartTime,
                     SemanticType = market.SemanticType,
                     ReferencedTeam = market.ReferencedTeam,
-                    // Mapeamento para compatibilidade com o contrato legado:
-                    // SIDE_A -> YesTokenId, SIDE_B -> NoTokenId
                     YesTokenId = sideA.TokenId,
                     NoTokenId = sideB.TokenId,
                     SideATokenId = sideA.TokenId,
                     SideBTokenId = sideB.TokenId,
-                    // Preenche rótulos mínimos necessários para H2H
                     SideALabel = string.IsNullOrWhiteSpace(sideA.OutcomeLabel) ? null : sideA.OutcomeLabel,
                     SideBLabel = string.IsNullOrWhiteSpace(sideB.OutcomeLabel) ? null : sideB.OutcomeLabel,
                     OutcomeRoleA = "SIDE_A",
@@ -180,7 +183,6 @@ namespace Arb.Core.Application.UseCases.MarketData
                 };
             }
 
-            // Nenhuma combinação válida encontrada
             return null;
         }
     }

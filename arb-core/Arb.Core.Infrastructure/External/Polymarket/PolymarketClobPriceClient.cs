@@ -145,8 +145,8 @@ namespace Arb.Core.Infrastructure.External.Polymarket
         }
 
         private IReadOnlyDictionary<string, decimal> ParseMidpointResponse(
-            string content,
-            IReadOnlyList<string> tokenIds)
+         string content,
+         IReadOnlyList<string> tokenIds)
         {
             var result = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
@@ -160,10 +160,16 @@ namespace Arb.Core.Infrastructure.External.Polymarket
 
                 if (tokenIds.Count == 1)
                 {
-                    // Resposta para token único: { "mid_price": "0.45" }
-                    if (root.TryGetProperty("mid_price", out var midPriceEl))
+                    // Resposta simples para token único:
+                    // { "mid_price": "0.45" }
+                    // ou
+                    // { "mid": "0.45" }
+                    if (root.ValueKind == JsonValueKind.Object &&
+                        (root.TryGetProperty("mid_price", out var midPriceEl) ||
+                         root.TryGetProperty("mid", out midPriceEl)))
                     {
                         var midPriceStr = midPriceEl.GetString();
+
                         if (decimal.TryParse(
                                 midPriceStr,
                                 System.Globalization.NumberStyles.Any,
@@ -176,9 +182,8 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                 }
                 else
                 {
-                    // Resposta para múltiplos tokens — array ou objeto com múltiplas entradas
-                    // A API pode retornar formato diferente para múltiplos tokens
-                    // Tratamos os dois casos: array e objeto
+                    // Resposta para múltiplos tokens:
+                    // pode vir como array de objetos ou objeto indexado por token
                     if (root.ValueKind == JsonValueKind.Array)
                     {
                         foreach (var item in root.EnumerateArray())
@@ -188,18 +193,50 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                     }
                     else if (root.ValueKind == JsonValueKind.Object)
                     {
-                        // Se vier como objeto único com mid_price, associa ao único token
-                        if (root.TryGetProperty("mid_price", out var midPriceEl) &&
-                            tokenIds.Count == 1)
+                        foreach (var prop in root.EnumerateObject())
                         {
-                            var midPriceStr = midPriceEl.GetString();
-                            if (decimal.TryParse(
-                                    midPriceStr,
-                                    System.Globalization.NumberStyles.Any,
-                                    System.Globalization.CultureInfo.InvariantCulture,
-                                    out var midPrice) && midPrice > 0)
+                            var key = prop.Name;
+                            var value = prop.Value;
+
+                            if (!tokenIds.Contains(key, StringComparer.OrdinalIgnoreCase))
+                                continue;
+
+                            // Exemplo:
+                            // { "tokenA": "0.42" }
+                            if (value.ValueKind == JsonValueKind.String)
                             {
-                                result[tokenIds[0]] = midPrice;
+                                var raw = value.GetString();
+
+                                if (decimal.TryParse(
+                                        raw,
+                                        System.Globalization.NumberStyles.Any,
+                                        System.Globalization.CultureInfo.InvariantCulture,
+                                        out var parsed) && parsed > 0)
+                                {
+                                    result[key] = parsed;
+                                }
+
+                                continue;
+                            }
+
+                            // Exemplo:
+                            // { "tokenA": { "mid_price": "0.42" } }
+                            // ou
+                            // { "tokenA": { "mid": "0.42" } }
+                            if (value.ValueKind == JsonValueKind.Object &&
+                                (value.TryGetProperty("mid_price", out var nestedMidPriceEl) ||
+                                 value.TryGetProperty("mid", out nestedMidPriceEl)))
+                            {
+                                var raw = nestedMidPriceEl.GetString();
+
+                                if (decimal.TryParse(
+                                        raw,
+                                        System.Globalization.NumberStyles.Any,
+                                        System.Globalization.CultureInfo.InvariantCulture,
+                                        out var parsed) && parsed > 0)
+                                {
+                                    result[key] = parsed;
+                                }
                             }
                         }
                     }
@@ -213,12 +250,19 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                     content.Length > 200 ? content[..200] : content);
             }
 
+            if (tokenIds.Count > 1 && result.Count == 0)
+            {
+                _logger.LogWarning(
+                    "Polymarket CLOB returned no parsed midpoints for multi-token request. RequestedTokens={RequestedTokens} Content={Content}",
+                    string.Join(",", tokenIds),
+                    content.Length > 1000 ? content[..1000] : content);
+            }
+
             return result;
         }
-
         private static void ParseMidpointItem(
-            JsonElement item,
-            Dictionary<string, decimal> result)
+        JsonElement item,
+        Dictionary<string, decimal> result)
         {
             if (!item.TryGetProperty("asset_id", out var assetIdEl) &&
                 !item.TryGetProperty("token_id", out assetIdEl))
@@ -229,10 +273,12 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                 return;
 
             if (!item.TryGetProperty("mid_price", out var midPriceEl) &&
+                !item.TryGetProperty("mid", out midPriceEl) &&
                 !item.TryGetProperty("price", out midPriceEl))
                 return;
 
             var midPriceStr = midPriceEl.GetString();
+
             if (decimal.TryParse(
                     midPriceStr,
                     System.Globalization.NumberStyles.Any,

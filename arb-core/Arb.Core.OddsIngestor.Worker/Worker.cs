@@ -496,20 +496,8 @@ namespace Arb.Core.OddsIngestor.Worker
                 .ToArray();
 
             var teamMatchedCandidates = registryCandidates
-                .Where(x =>
-                    (!string.IsNullOrWhiteSpace(x.ReferencedTeam) &&
-                    observedTeams.Contains(
-                        NormalizeTeam(x.ReferencedTeam),
-                        StringComparer.OrdinalIgnoreCase)) ||
-                    (!string.IsNullOrWhiteSpace(x.SideALabel) &&
-                    observedTeams.Contains(
-                        NormalizeTeam(x.SideALabel),
-                        StringComparer.OrdinalIgnoreCase)) ||
-                    (!string.IsNullOrWhiteSpace(x.SideBLabel) &&
-                    observedTeams.Contains(
-                        NormalizeTeam(x.SideBLabel),
-                        StringComparer.OrdinalIgnoreCase)))
-                .ToArray();
+             .Where(x => IsTeamMatchedCandidate(x, observedTeams))
+             .ToArray();
 
             return new ActiveSliceDiagnostics
             {
@@ -521,7 +509,73 @@ namespace Arb.Core.OddsIngestor.Worker
                 WindowEnd = null
             };
         }
+        private static bool IsTeamMatchedCandidate(
+        FootballQuoteCandidate candidate,
+        string[] observedTeams)
+        {
+            // Futebol: YES/NO — igualdade exata com ReferencedTeam
+            if (!string.Equals(
+                candidate.SemanticType,
+                TeamVsTeamSemanticType,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return !string.IsNullOrWhiteSpace(candidate.ReferencedTeam) &&
+                       observedTeams.Contains(
+                           NormalizeTeam(candidate.ReferencedTeam),
+                           StringComparer.OrdinalIgnoreCase);
+            }
 
+            // H2H (NBA): igualdade exata primeiro
+            var normalizedSideA = NormalizeTeam(candidate.SideALabel);
+            var normalizedSideB = NormalizeTeam(candidate.SideBLabel);
+
+            if (!string.IsNullOrWhiteSpace(normalizedSideA) &&
+                observedTeams.Contains(normalizedSideA, StringComparer.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(normalizedSideB) &&
+                observedTeams.Contains(normalizedSideB, StringComparer.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            // H2H: fallback por nickname/sufixo
+            return observedTeams.Any(observedTeam =>
+                TryMatchNicknameH2h(observedTeam, normalizedSideA, normalizedSideB));
+        }
+
+        private static bool TryMatchNicknameH2h(
+            string normalizedObservedTeam,
+            string normalizedSideA,
+            string normalizedSideB)
+        {
+            if (string.IsNullOrWhiteSpace(normalizedObservedTeam))
+                return false;
+
+            var tokens = normalizedObservedTeam.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            // Ex.: "los angeles lakers" -> tenta "lakers", depois "angeles lakers"
+            for (int i = tokens.Length - 1; i >= 0; i--)
+            {
+                var suffix = string.Join(" ", tokens.Skip(i));
+
+                if (!string.IsNullOrWhiteSpace(normalizedSideA) &&
+                    string.Equals(suffix, normalizedSideA, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(normalizedSideB) &&
+                    string.Equals(suffix, normalizedSideB, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
         private ObservedBuildResult BuildObservedSoccerSelectionSnapshots(
             IReadOnlyCollection<object> rawSnapshots,
             string sportKey,

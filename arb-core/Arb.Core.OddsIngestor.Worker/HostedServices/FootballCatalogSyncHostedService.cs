@@ -10,6 +10,7 @@ namespace Arb.Core.OddsIngestor.Worker.HostedServices
     {
         private readonly IFootballCatalogRedisRepository _repository;
         private readonly RefreshFootballCatalogSnapshotUseCase _refreshUseCase;
+        private readonly RefreshNbaCatalogSnapshotUseCase _refreshNbaUseCase;
         private readonly IFootballMarketSubscriptionProvider _subscriptionProvider;
         private readonly FootballCatalogRedisOptions _options;
         private readonly ILogger<FootballCatalogSyncHostedService> _logger;
@@ -17,12 +18,14 @@ namespace Arb.Core.OddsIngestor.Worker.HostedServices
         public FootballCatalogSyncHostedService(
             IFootballCatalogRedisRepository repository,
             RefreshFootballCatalogSnapshotUseCase refreshUseCase,
+            RefreshNbaCatalogSnapshotUseCase refreshNbaUseCase,
             IFootballMarketSubscriptionProvider subscriptionProvider,
             IOptions<FootballCatalogRedisOptions> options,
             ILogger<FootballCatalogSyncHostedService> logger)
         {
             _repository = repository;
             _refreshUseCase = refreshUseCase;
+            _refreshNbaUseCase = refreshNbaUseCase;
             _subscriptionProvider = subscriptionProvider;
             _options = options.Value;
             _logger = logger;
@@ -40,6 +43,8 @@ namespace Arb.Core.OddsIngestor.Worker.HostedServices
                 initialSnapshot.Version,
                 lastSeenStreamId);
 
+            await TryRefreshNbaAsync(stoppingToken);
+
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
@@ -50,8 +55,6 @@ namespace Arb.Core.OddsIngestor.Worker.HostedServices
 
                     if (events.Count == 0)
                     {
-                        // Sem este delay, o loop hammers o Redis em busy-wait
-                        // e gera RedisTimeoutException por saturação do multiplexer.
                         await Task.Delay(
                             TimeSpan.FromMilliseconds(_options.PollingIntervalMs),
                             stoppingToken);
@@ -76,6 +79,8 @@ namespace Arb.Core.OddsIngestor.Worker.HostedServices
                             "Football catalog reloaded from Redis stream",
                             snapshot.Version,
                             evt.StreamEntryId);
+
+                        await TryRefreshNbaAsync(stoppingToken);
                     }
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -90,6 +95,18 @@ namespace Arb.Core.OddsIngestor.Worker.HostedServices
             }
 
             _logger.LogInformation("Football catalog sync service stopped");
+        }
+
+        private async Task TryRefreshNbaAsync(CancellationToken stoppingToken)
+        {
+            try
+            {
+                await _refreshNbaUseCase.ExecuteAsync(stoppingToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Warning refreshing NBA catalog snapshot.");
+            }
         }
 
         private void LogSubscriptionProjection(

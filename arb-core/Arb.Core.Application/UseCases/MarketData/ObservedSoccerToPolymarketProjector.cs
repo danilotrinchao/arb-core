@@ -152,23 +152,22 @@ namespace Arb.Core.Application.UseCases.MarketData
         /// Para TEAM_VS_TEAM_WINNER (NBA H2H): compara com SideALabel e SideBLabel.
         /// </summary>
         private IReadOnlyCollection<FootballQuoteCandidate> GetMatchingCandidates(
-            IReadOnlyCollection<FootballQuoteCandidate> activeCandidates,
-            string selectionKey,
-            string normalizedObservedTeam,
-            out string observedSide)
+    IReadOnlyCollection<FootballQuoteCandidate> activeCandidates,
+    string selectionKey,
+    string normalizedObservedTeam,
+    out string observedSide)
         {
             observedSide = string.Empty;
             var matches = new List<FootballQuoteCandidate>();
 
             foreach (var candidate in activeCandidates)
             {
-                // Futebol: YES/NO — compara com ReferencedTeam
+                // Futebol: mantém exatamente como estava
                 if (!string.Equals(
-                    candidate.SemanticType,
-                    TeamVsTeamSemanticType,
-                    StringComparison.OrdinalIgnoreCase))
+                        candidate.SemanticType,
+                        TeamVsTeamSemanticType,
+                        StringComparison.OrdinalIgnoreCase))
                 {
-                    // Validação: SelectionKey deve ser HOME ou AWAY para futebol
                     if (!string.Equals(selectionKey, "HOME", StringComparison.OrdinalIgnoreCase) &&
                         !string.Equals(selectionKey, "AWAY", StringComparison.OrdinalIgnoreCase))
                     {
@@ -176,9 +175,9 @@ namespace Arb.Core.Application.UseCases.MarketData
                     }
 
                     if (string.Equals(
-                        NormalizeTeam(candidate.ReferencedTeam),
-                        normalizedObservedTeam,
-                        StringComparison.OrdinalIgnoreCase))
+                            NormalizeTeam(candidate.ReferencedTeam),
+                            normalizedObservedTeam,
+                            StringComparison.OrdinalIgnoreCase))
                     {
                         matches.Add(candidate);
                     }
@@ -186,14 +185,10 @@ namespace Arb.Core.Application.UseCases.MarketData
                     continue;
                 }
 
-                // NBA: SIDE_A/SIDE_B — compara com SideALabel e SideBLabel
-                // Validação: SelectionKey deve ser SIDE_A ou SIDE_B para NBA
-                if (!string.Equals(selectionKey, "SIDE_A", StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(selectionKey, "SIDE_B", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
+                // NBA H2H:
+                // NÃO depender de SIDE_A/SIDE_B no SelectionKey.
+                // O observado vem como HOME/AWAY da TheOddsApi; o lado real é resolvido
+                // comparando o time observado com SideALabel/SideBLabel.
                 var normalizedSideA = NormalizeTeam(candidate.SideALabel);
                 var normalizedSideB = NormalizeTeam(candidate.SideBLabel);
 
@@ -208,6 +203,17 @@ namespace Arb.Core.Application.UseCases.MarketData
                 {
                     matches.Add(candidate);
                     observedSide = "SIDE_B";
+                    continue;
+                }
+
+                if (TryMatchNicknameH2h(
+                        normalizedObservedTeam,
+                        normalizedSideA,
+                        normalizedSideB,
+                        out var matchedSide))
+                {
+                    matches.Add(candidate);
+                    observedSide = matchedSide;
                 }
             }
 
@@ -224,17 +230,17 @@ namespace Arb.Core.Application.UseCases.MarketData
         ///   - time corresponde a SideBLabel → SIDE_B é o alvo
         /// </summary>
         private static void ResolveTargetSide(
-            FootballQuoteCandidate candidate,
-            string selectionKey,
-            string normalizedObservedTeam,
-            out string targetSide,
-            out string targetTokenId)
+    FootballQuoteCandidate candidate,
+    string selectionKey,
+    string normalizedObservedTeam,
+    out string targetSide,
+    out string targetTokenId)
         {
-            // NBA H2H: SIDE_A/SIDE_B
+            // NBA H2H
             if (string.Equals(
-                candidate.SemanticType,
-                TeamVsTeamSemanticType,
-                StringComparison.OrdinalIgnoreCase))
+                    candidate.SemanticType,
+                    TeamVsTeamSemanticType,
+                    StringComparison.OrdinalIgnoreCase))
             {
                 var normalizedSideA = NormalizeTeam(candidate.SideALabel);
                 var normalizedSideB = NormalizeTeam(candidate.SideBLabel);
@@ -253,16 +259,63 @@ namespace Arb.Core.Application.UseCases.MarketData
                     return;
                 }
 
-                // Fallback (não deve acontecer se GetMatchingCandidates foi chamado antes)
+                if (TryMatchNicknameH2h(
+                        normalizedObservedTeam,
+                        normalizedSideA,
+                        normalizedSideB,
+                        out var matchedSide))
+                {
+                    targetSide = matchedSide;
+                    targetTokenId = string.Equals(matchedSide, "SIDE_A", StringComparison.OrdinalIgnoreCase)
+                        ? (candidate.SideATokenId ?? string.Empty)
+                        : (candidate.SideBTokenId ?? string.Empty);
+                    return;
+                }
+
                 targetSide = "SIDE_A";
                 targetTokenId = candidate.SideATokenId ?? string.Empty;
                 return;
             }
 
-            // Fallback: modelo YES/NO (legado futebol)
-            // Observação de um time → YES é o alvo
+            // Futebol legado
             targetSide = "YES";
             targetTokenId = candidate.YesTokenId;
+        }
+
+        private static bool TryMatchNicknameH2h(
+        string normalizedObservedTeam,
+        string normalizedSideA,
+        string normalizedSideB,
+        out string matchedSide)
+        {
+            matchedSide = string.Empty;
+
+            if (string.IsNullOrWhiteSpace(normalizedObservedTeam))
+                return false;
+
+            var tokens = normalizedObservedTeam.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            // Ex.: "los angeles lakers" -> tenta "lakers", depois "angeles lakers"
+            for (int i = tokens.Length - 1; i >= 0; i--)
+            {
+                var suffix = string.Join(" ", tokens.Skip(i));
+
+                if (!string.IsNullOrWhiteSpace(normalizedSideA) &&
+                    string.Equals(suffix, normalizedSideA, StringComparison.OrdinalIgnoreCase))
+                {
+                    matchedSide = "SIDE_A";
+                    return true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(normalizedSideB) &&
+                    string.Equals(suffix, normalizedSideB, StringComparison.OrdinalIgnoreCase))
+                {
+                    matchedSide = "SIDE_B";
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
