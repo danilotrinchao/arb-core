@@ -52,11 +52,10 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             // Postgres — converte URL do Railway para formato Npgsql
             services.AddSingleton<NpgsqlConnectionFactory>(sp =>
             {
-                var rawPostgres = config["Postgres:Connection"];
-                var rawConnectionString = !string.IsNullOrWhiteSpace(rawPostgres) ? rawPostgres
-                    : config["Postgres:ConnectionString"] is string cs && !string.IsNullOrWhiteSpace(cs) ? cs
-                    : Environment.GetEnvironmentVariable("DATABASE_URL")
-                    ?? "Host=postgres.railway.internal;Port=5432;Database=railway;Username=postgres;Password=WfxqHNUYYncGjfOASkSBRAvByFSSoEdE;SSL Mode=Require;Trust Server Certificate=true";
+                var rawConnectionString =
+                    config["Postgres:Connection"] ??
+                    config["Postgres:ConnectionString"] ??
+                    "Host=localhost;Port=5432;Database=arb;Username=postgres;Password=1234";
 
                 var connectionString = ConvertPostgresUrl(rawConnectionString);
 
@@ -71,13 +70,8 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             services.AddScoped<IPositionRepository, PositionRepository>();
 
             // The Odds API
-            //services.Configure<TheOddsApiOptions>(config.GetSection(TheOddsApiOptions.SectionName));
-            services.Configure<TheOddsApiOptions>(opts =>
-            {
-                config.GetSection(TheOddsApiOptions.SectionName).Bind(opts);
-                if (string.IsNullOrWhiteSpace(opts.ApiKey))
-                    opts.ApiKey = "12c25a162b4d2bfae679523dd9727fdd";
-            });
+            services.Configure<TheOddsApiOptions>(config.GetSection(TheOddsApiOptions.SectionName));
+
             services.AddHttpClient<TheOddsApiClient>((sp, client) =>
             {
                 var options = sp
@@ -151,7 +145,5 @@ namespace Arb.Core.Infrastructure.DependencyInjection
                 return url;
             }
         }
-        private static string? NullIfEmpty(this string? s) =>
-            string.IsNullOrWhiteSpace(s) ? null : s;
     }
 }

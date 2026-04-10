@@ -129,28 +129,24 @@ namespace Arb.Core.Executor.Worker.HostedServices
             }
         }
 
+
         private async Task ProcessPositionAsync(
-            OpenPositionForSettlement position,
-            IReadOnlyDictionary<string, decimal> midPrices,
-            DateTime utcNow,
-            IPositionRepository positionRepo,
-            IServiceScope scope,
-            CancellationToken ct)
+    OpenPositionForSettlement position,
+    IReadOnlyDictionary<string, decimal> midPrices,
+    DateTime utcNow,
+    IPositionRepository positionRepo,
+    IServiceScope scope,
+    CancellationToken ct)
         {
             var timeToKickoff = position.CommenceTime - utcNow;
-            var kickoffWindowReached = timeToKickoff <=
-                TimeSpan.FromMinutes(_settlementOptions.MinutesBeforeKickoffToClose);
+            var kickoffWindowReached = timeToKickoff <= TimeSpan.FromMinutes(_settlementOptions.MinutesBeforeKickoffToClose);
             var kickoffPassed = utcNow > position.CommenceTime;
 
-            // Tenta obter o preço atual da CLOB
             decimal? currentMidPrice = null;
-
             if (!string.IsNullOrWhiteSpace(position.TargetTokenId) &&
                 midPrices.TryGetValue(position.TargetTokenId, out var fetchedMid))
             {
                 currentMidPrice = fetchedMid;
-
-                // Atualiza o last_known_mid_price no banco — proteção para o fallback de kickoff
                 await positionRepo.UpdateLastKnownMidPriceAsync(
                     position.Id,
                     (double)fetchedMid,
@@ -158,46 +154,24 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     ct);
             }
 
-            // ── Cenário 1: Jogo já começou com posição ainda aberta ─────────────────
-            // Situação crítica — o monitor falhou em fechar antes do kickoff
-            if (kickoffPassed)
-            {
-                _logger.LogError(
-                    "CRITICAL: Position expired without exit. " +
-                    "positionId={PositionId} team={Team} conditionId={ConditionId} " +
-                    "commenceTime={CommenceTime} utcNow={UtcNow}",
-                    position.Id,
-                    position.ObservedTeam,
-                    position.PolymarketConditionId,
-                    position.CommenceTime.ToString("O"),
-                    utcNow.ToString("O"));
+            var comparableTargetProbability = GetComparableTargetProbability(position);
 
-                await ClosePositionAsync(
-                    position: position,
-                    closePrice: currentMidPrice ?? (decimal?)position.LastKnownMidPrice,
-                    exitReason: ExitExpiredNoClose,
-                    utcNow: utcNow,
-                    positionRepo: positionRepo,
-                    scope: scope,
-                    ct: ct);
-
-                return;
-            }
-
-            // ── Cenário 2: Convergência atingida ────────────────────────────────────
-            // O preço da Polymarket chegou ao alvo asiático — fecha com lucro
-            if (currentMidPrice.HasValue &&
-                position.TargetProbability.HasValue &&
-                currentMidPrice.Value >= (decimal)position.TargetProbability.Value)
+            // 1) Convergência só faz sentido ANTES do kickoff
+            if (!kickoffPassed &&
+                currentMidPrice.HasValue &&
+                comparableTargetProbability.HasValue &&
+                currentMidPrice.Value >= (decimal)comparableTargetProbability.Value)
             {
                 _logger.LogInformation(
                     "Convergence reached. positionId={PositionId} team={Team} " +
-                    "mid={Mid:F4} target={Target:F4} " +
-                    "entry={Entry} timeToKickoff={TimeToKickoff}",
+                    "mid={Mid:F4} comparableTarget={ComparableTarget:F4} rawTarget={RawTarget:F4} " +
+                    "targetSide={TargetSide} entry={Entry} timeToKickoff={TimeToKickoff}",
                     position.Id,
                     position.ObservedTeam,
                     currentMidPrice.Value,
-                    position.TargetProbability.Value,
+                    comparableTargetProbability.Value,
+                    position.TargetProbability ?? 0,
+                    position.TargetSide,
                     position.PolymarketEntryPrice?.ToString("F4", CultureInfo.InvariantCulture) ?? "N/A",
                     timeToKickoff.ToString(@"hh\:mm\:ss"));
 
@@ -209,26 +183,27 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     positionRepo: positionRepo,
                     scope: scope,
                     ct: ct);
-
                 return;
             }
 
-            // ── Cenário 3: Janela de kickoff atingida ───────────────────────────────
-            // Independente de convergência, força o fechamento antes do jogo
+            // 2) Janela de kickoff: tenta fechar com preço atual ou último preço conhecido
             if (kickoffWindowReached)
             {
-                // Sub-cenário 3a: temos preço atual confiável
                 if (currentMidPrice.HasValue)
                 {
                     _logger.LogInformation(
                         "Kickoff window reached — closing with current price. " +
                         "positionId={PositionId} team={Team} " +
-                        "mid={Mid:F4} target={Target} " +
-                        "timeToKickoff={TimeToKickoff}",
+                        "mid={Mid:F4} comparableTarget={ComparableTarget} rawTarget={RawTarget} " +
+                        "targetSide={TargetSide} timeToKickoff={TimeToKickoff}",
                         position.Id,
                         position.ObservedTeam,
                         currentMidPrice.Value,
-                        position.TargetProbability?.ToString("F4") ?? "N/A",
+                        comparableTargetProbability.HasValue
+                            ? comparableTargetProbability.Value.ToString("F4", CultureInfo.InvariantCulture)
+                            : "N/A",
+                        position.TargetProbability?.ToString("F4", CultureInfo.InvariantCulture) ?? "N/A",
+                        position.TargetSide,
                         timeToKickoff.ToString(@"mm\:ss"));
 
                     await ClosePositionAsync(
@@ -239,13 +214,10 @@ namespace Arb.Core.Executor.Worker.HostedServices
                         positionRepo: positionRepo,
                         scope: scope,
                         ct: ct);
-
                     return;
                 }
 
-                // Sub-cenário 3b: CLOB indisponível — usa last_known_mid_price se recente
-                if (position.LastKnownMidPrice.HasValue &&
-                    position.LastPriceCheckedAt.HasValue)
+                if (position.LastKnownMidPrice.HasValue && position.LastPriceCheckedAt.HasValue)
                 {
                     var priceAge = utcNow - position.LastPriceCheckedAt.Value;
                     var maxAge = TimeSpan.FromMinutes(_settlementOptions.MaxPriceAgeMinutes);
@@ -269,12 +241,34 @@ namespace Arb.Core.Executor.Worker.HostedServices
                             positionRepo: positionRepo,
                             scope: scope,
                             ct: ct);
-
                         return;
                     }
                 }
 
-                // Sub-cenário 3c: sem preço confiável — fecha sem PnL, loga alerta
+                // Se já passou do kickoff e ainda não temos preço confiável
+                if (kickoffPassed)
+                {
+                    _logger.LogError(
+                        "CRITICAL: Position expired without reliable close price. " +
+                        "positionId={PositionId} team={Team} conditionId={ConditionId} " +
+                        "commenceTime={CommenceTime} utcNow={UtcNow}",
+                        position.Id,
+                        position.ObservedTeam,
+                        position.PolymarketConditionId,
+                        position.CommenceTime.ToString("O"),
+                        utcNow.ToString("O"));
+
+                    await ClosePositionAsync(
+                        position: position,
+                        closePrice: null,
+                        exitReason: ExitExpiredNoClose,
+                        utcNow: utcNow,
+                        positionRepo: positionRepo,
+                        scope: scope,
+                        ct: ct);
+                    return;
+                }
+
                 _logger.LogError(
                     "Kickoff window reached — no reliable price available. " +
                     "positionId={PositionId} team={Team} " +
@@ -292,24 +286,52 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     positionRepo: positionRepo,
                     scope: scope,
                     ct: ct);
-
                 return;
             }
 
-            // ── Nenhuma condição de saída atingida ──────────────────────────────────
-            // Loga o estado atual para acompanhamento
             _logger.LogDebug(
                 "Position monitoring. positionId={PositionId} team={Team} " +
-                "mid={Mid} target={Target} " +
-                "entry={Entry} timeToKickoff={TimeToKickoff}",
+                "mid={Mid} comparableTarget={ComparableTarget} rawTarget={RawTarget} " +
+                "targetSide={TargetSide} entry={Entry} timeToKickoff={TimeToKickoff}",
                 position.Id,
                 position.ObservedTeam,
                 currentMidPrice.HasValue
                     ? currentMidPrice.Value.ToString("F4", CultureInfo.InvariantCulture)
                     : "N/A",
-                position.TargetProbability?.ToString("F4") ?? "N/A",
+                comparableTargetProbability.HasValue
+                    ? comparableTargetProbability.Value.ToString("F4", CultureInfo.InvariantCulture)
+                    : "N/A",
+                position.TargetProbability?.ToString("F4", CultureInfo.InvariantCulture) ?? "N/A",
+                position.TargetSide,
                 position.PolymarketEntryPrice?.ToString("F4", CultureInfo.InvariantCulture) ?? "N/A",
                 timeToKickoff.ToString(@"hh\:mm\:ss"));
+        }
+        private static double? GetComparableTargetProbability(OpenPositionForSettlement position)
+        {
+            if (!position.TargetProbability.HasValue) return null;
+
+            var rawTarget = position.TargetProbability.Value;
+            if (rawTarget <= 0) return 0;
+            if (rawTarget >= 1) return 1;
+
+            var targetSide = position.TargetSide ?? string.Empty;
+
+            // YES / SIDE_A usam o alvo como está
+            if (string.Equals(targetSide, "YES", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(targetSide, "SIDE_A", StringComparison.OrdinalIgnoreCase))
+            {
+                return Math.Round(rawTarget, 4, MidpointRounding.AwayFromZero);
+            }
+
+            // NO / SIDE_B precisam do complementar
+            if (string.Equals(targetSide, "NO", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(targetSide, "SIDE_B", StringComparison.OrdinalIgnoreCase))
+            {
+                return Math.Round(1d - rawTarget, 4, MidpointRounding.AwayFromZero);
+            }
+
+            // fallback defensivo
+            return Math.Round(rawTarget, 4, MidpointRounding.AwayFromZero);
         }
 
         private async Task ClosePositionAsync(

@@ -26,6 +26,7 @@ namespace Arb.Core.Executor.Worker
         private readonly PolymarketClobPriceClient _clobPriceClient;
         private readonly StreamsOptions _streams;
         private readonly ExecutorOptions _executorOptions;
+        private readonly SettlementOptions _settlement;
         private readonly RiskOptions _risk;
 
         private static readonly JsonSerializerOptions JsonOpts = new()
@@ -41,6 +42,7 @@ namespace Arb.Core.Executor.Worker
             PolymarketClobPriceClient clobPriceClient,
             IOptions<StreamsOptions> streamsOptions,
             IOptions<ExecutorOptions> executorOptions,
+            IOptions<SettlementOptions> settlementOptions,
             IOptions<RiskOptions> riskOptions)
         {
             _logger = logger;
@@ -50,12 +52,12 @@ namespace Arb.Core.Executor.Worker
             _clobPriceClient = clobPriceClient;
             _streams = streamsOptions.Value;
             _executorOptions = executorOptions.Value;
+            _settlement = settlementOptions.Value;
             _risk = riskOptions.Value;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            // Apenas o grupo do fluxo Polymarket — fluxo legado removido
             await _consumer.EnsureConsumerGroupAsync(
                 _streams.PolymarketOrderIntents,
                 PolymarketGroupName,
@@ -200,8 +202,35 @@ namespace Arb.Core.Executor.Worker
                             continue;
                         }
 
+                        // Gate: não abrir posição já dentro da janela de fechamento
+                        var commenceTime = TryParseDateTime(intent.MatchedGammaStartTime)
+                            ?? DateTime.UtcNow.AddHours(6);
+
+                        var utcNow = DateTime.UtcNow;
+                        var timeToKickoff = commenceTime - utcNow;
+                        var kickoffWindow = TimeSpan.FromMinutes(_settlement.MinutesBeforeKickoffToClose);
+
+                        if (timeToKickoff <= kickoffWindow)
+                        {
+                            _logger.LogInformation(
+                                "Polymarket intent rejected. Reason=INSIDE_KICKOFF_WINDOW " +
+                                "intentId={IntentId} team={Team} conditionId={ConditionId} " +
+                                "timeToKickoff={TimeToKickoff} kickoffWindowMinutes={KickoffWindowMinutes}",
+                                intent.IntentId,
+                                intent.ObservedTeam,
+                                intent.PolymarketConditionId,
+                                timeToKickoff.ToString(),
+                                _settlement.MinutesBeforeKickoffToClose);
+
+                            await _consumer.AckAsync(
+                                _streams.PolymarketOrderIntents,
+                                PolymarketGroupName,
+                                msg.Id,
+                                stoppingToken);
+                            continue;
+                        }
+
                         // Consulta o preço real do token na Polymarket CLOB
-                        // Este é o preço que seria pago de verdade na entrada
                         // Null se a CLOB estiver indisponível — o monitor usará
                         // last_known_mid_price como fallback
                         double? polymarketEntryPrice = null;
@@ -230,9 +259,6 @@ namespace Arb.Core.Executor.Worker
                             }
                         }
 
-                        var commenceTime = TryParseDateTime(intent.MatchedGammaStartTime)
-                            ?? DateTime.UtcNow.AddHours(6);
-
                         var positionId = await positionRepo.CreateOpenAsync(
                             new PositionOpen(
                                 IntentId: intent.IntentId,
@@ -244,16 +270,12 @@ namespace Arb.Core.Executor.Worker
                                 MarketType: PolymarketMarketType,
                                 SelectionKey: intent.SelectionKey,
                                 Stake: effectiveStake,
-                                // EntryPrice = CurrentReferencePrice em probabilidade
-                                // Mantido para compatibilidade com o schema existente
                                 EntryPrice: (double)intent.CurrentReferencePrice,
                                 CreatedAt: DateTime.UtcNow,
                                 TargetSide: intent.TargetSide,
                                 ObservedTeam: intent.ObservedTeam,
                                 PolymarketConditionId: intent.PolymarketConditionId,
-                                // Preço real do token na Polymarket no momento da abertura
                                 PolymarketEntryPrice: polymarketEntryPrice,
-                                // Alvo de convergência vindo do engine
                                 TargetProbability: (double)intent.TargetProbability,
                                 TargetTokenId: intent.TargetTokenId),
                             stoppingToken);
