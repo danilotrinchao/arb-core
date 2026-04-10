@@ -61,6 +61,24 @@ namespace Arb.Core.Contracts.Common.PolymarketObservation
         [JsonPropertyName("noTokenId")]
         public string NoTokenId { get; init; } = string.Empty;
 
+        [JsonPropertyName("sideATokenId")]
+        public string? SideATokenId { get; init; }
+
+        [JsonPropertyName("sideBTokenId")]
+        public string? SideBTokenId { get; init; }
+
+        [JsonPropertyName("outcomeRoleA")]
+        public string? OutcomeRoleA { get; init; }
+
+        [JsonPropertyName("outcomeRoleB")]
+        public string? OutcomeRoleB { get; init; }
+
+        [JsonPropertyName("sideALabel")]
+        public string? SideALabel { get; init; }
+
+        [JsonPropertyName("sideBLabel")]
+        public string? SideBLabel { get; init; }
+
         [JsonPropertyName("matchedGammaId")]
         public string? MatchedGammaId { get; init; }
 

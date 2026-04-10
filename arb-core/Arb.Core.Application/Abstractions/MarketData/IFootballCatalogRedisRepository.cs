@@ -7,6 +7,9 @@ namespace Arb.Core.Application.Abstractions.MarketData
         Task<FootballQuoteEligibleSnapshotV1?> GetCurrentSnapshotAsync(
             CancellationToken cancellationToken);
 
+        Task<FootballQuoteEligibleSnapshotV1?> GetNbaSnapshotAsync(
+           CancellationToken cancellationToken);
+
         Task<string> GetLatestCatalogStreamIdAsync(
             CancellationToken cancellationToken);
 

@@ -84,7 +84,6 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 "PolymarketExitMonitor scanning {Count} open position(s)",
                 positions.Count);
 
-            // Consulta preços de todos os tokens de uma vez — evita N chamadas à CLOB
             var tokenIds = positions
                 .Where(p => !string.IsNullOrWhiteSpace(p.TargetTokenId))
                 .Select(p => p.TargetTokenId!)
@@ -96,12 +95,29 @@ namespace Arb.Core.Executor.Worker.HostedServices
 
             if (tokenIds.Count > 0)
             {
-                midPrices = await _clobPriceClient.GetMidpointsAsync(tokenIds, ct);
+                var midPriceMap = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
-                _logger.LogDebug(
-                    "CLOB midpoints fetched. Requested={Requested} Returned={Returned}",
+                foreach (var tokenId in tokenIds)
+                {
+                    var midpoint = await _clobPriceClient.GetMidpointAsync(tokenId, ct);
+                    if (midpoint.HasValue)
+                    {
+                        midPriceMap[tokenId] = midpoint.Value;
+                    }
+                }
+
+                midPrices = midPriceMap;
+
+                var missingTokenIds = tokenIds
+                    .Where(x => !midPrices.ContainsKey(x))
+                    .Take(10)
+                    .ToArray();
+
+                _logger.LogInformation(
+                    "CLOB midpoints fetched. Requested={Requested} Returned={Returned} MissingSample={MissingSample}",
                     tokenIds.Count,
-                    midPrices.Count);
+                    midPrices.Count,
+                    missingTokenIds.Length == 0 ? "none" : string.Join(",", missingTokenIds));
             }
 
             var utcNow = DateTime.UtcNow;

@@ -8,6 +8,8 @@
 
         public string SnapshotKey { get; set; } = "pm:football:quote-eligible:current";
 
+        public string NbaSnapshotKey { get; set; } = "pm:nba:quote-eligible:current";
+
         public string StreamKey { get; set; } = "pm:events:catalog";
 
         public string UpdatedEventType { get; set; } = "football.catalog.updated";
@@ -23,6 +25,7 @@
         public int AsyncTimeoutMs { get; set; } = 15000;
 
         public int KeepAliveSeconds { get; set; } = 30;
+
         public int PollingIntervalMs { get; set; } = 500;
     }
 }
