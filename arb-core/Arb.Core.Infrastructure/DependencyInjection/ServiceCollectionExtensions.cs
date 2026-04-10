@@ -55,7 +55,7 @@ namespace Arb.Core.Infrastructure.DependencyInjection
                 var rawConnectionString =
                     config["Postgres:Connection"] ??
                     config["Postgres:ConnectionString"] ??
-                    "Host=localhost;Port=5432;Database=arb;Username=postgres;Password=1234";
+                    "Host=postgres.railway.internal;Port=5432;Database=railway;Username=postgres;Password=WfxqHNUYYncGjfOASkSBRAvByFSSoEdE";
 
                 var connectionString = ConvertPostgresUrl(rawConnectionString);
 
