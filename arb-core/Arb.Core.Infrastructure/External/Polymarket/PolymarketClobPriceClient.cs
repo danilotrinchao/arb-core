@@ -224,9 +224,11 @@ namespace Arb.Core.Infrastructure.External.Polymarket
             return result;
         }
 
-        private IReadOnlyDictionary<string, decimal> ParseMidpointResponse(
-         string content,
-         IReadOnlyList<string> tokenIds)
+        /// <summary>
+        /// Parse da resposta do endpoint batch POST /midpoints
+        /// Formato esperado: [{ "token_id": "abc...", "mid": "0.65" }, ...]
+        /// </summary>
+        private IReadOnlyDictionary<string, decimal> ParseBatchMidpointResponse(string content)
         {
             var result = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
@@ -240,16 +242,22 @@ namespace Arb.Core.Infrastructure.External.Polymarket
 
                 if (root.ValueKind == JsonValueKind.Array)
                 {
-                    // Resposta simples para token único:
-                    // { "mid_price": "0.45" }
-                    // ou
-                    // { "mid": "0.45" }
-                    if (root.ValueKind == JsonValueKind.Object &&
-                        (root.TryGetProperty("mid_price", out var midPriceEl) ||
-                         root.TryGetProperty("mid", out midPriceEl)))
+                    foreach (var item in root.EnumerateArray())
                     {
-                        var midPriceStr = midPriceEl.GetString();
+                        // Tenta "token_id" ou "asset_id" como chave do token
+                        if (!item.TryGetProperty("token_id", out var idEl) &&
+                            !item.TryGetProperty("asset_id", out idEl))
+                            continue;
 
+                        var tokenId = idEl.GetString();
+                        if (string.IsNullOrWhiteSpace(tokenId))
+                            continue;
+
+                        // Campo do midpoint é "mid"
+                        if (!item.TryGetProperty("mid", out var midEl))
+                            continue;
+
+                        var midStr = midEl.GetString();
                         if (decimal.TryParse(
                                 midStr,
                                 System.Globalization.NumberStyles.Any,
@@ -262,64 +270,10 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                 }
                 else
                 {
-                    // Resposta para múltiplos tokens:
-                    // pode vir como array de objetos ou objeto indexado por token
-                    if (root.ValueKind == JsonValueKind.Array)
-                    {
-                        foreach (var item in root.EnumerateArray())
-                        {
-                            ParseMidpointItem(item, result);
-                        }
-                    }
-                    else if (root.ValueKind == JsonValueKind.Object)
-                    {
-                        foreach (var prop in root.EnumerateObject())
-                        {
-                            var key = prop.Name;
-                            var value = prop.Value;
-
-                            if (!tokenIds.Contains(key, StringComparer.OrdinalIgnoreCase))
-                                continue;
-
-                            // Exemplo:
-                            // { "tokenA": "0.42" }
-                            if (value.ValueKind == JsonValueKind.String)
-                            {
-                                var raw = value.GetString();
-
-                                if (decimal.TryParse(
-                                        raw,
-                                        System.Globalization.NumberStyles.Any,
-                                        System.Globalization.CultureInfo.InvariantCulture,
-                                        out var parsed) && parsed > 0)
-                                {
-                                    result[key] = parsed;
-                                }
-
-                                continue;
-                            }
-
-                            // Exemplo:
-                            // { "tokenA": { "mid_price": "0.42" } }
-                            // ou
-                            // { "tokenA": { "mid": "0.42" } }
-                            if (value.ValueKind == JsonValueKind.Object &&
-                                (value.TryGetProperty("mid_price", out var nestedMidPriceEl) ||
-                                 value.TryGetProperty("mid", out nestedMidPriceEl)))
-                            {
-                                var raw = nestedMidPriceEl.GetString();
-
-                                if (decimal.TryParse(
-                                        raw,
-                                        System.Globalization.NumberStyles.Any,
-                                        System.Globalization.CultureInfo.InvariantCulture,
-                                        out var parsed) && parsed > 0)
-                                {
-                                    result[key] = parsed;
-                                }
-                            }
-                        }
-                    }
+                    _logger.LogWarning(
+                        "Unexpected batch midpoints response format. ValueKind={Kind}. Content={Content}",
+                        root.ValueKind,
+                        content.Length > 200 ? content[..200] : content);
                 }
             }
             catch (JsonException ex)
@@ -329,43 +283,7 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                     content.Length > 200 ? content[..200] : content);
             }
 
-            if (tokenIds.Count > 1 && result.Count == 0)
-            {
-                _logger.LogWarning(
-                    "Polymarket CLOB returned no parsed midpoints for multi-token request. RequestedTokens={RequestedTokens} Content={Content}",
-                    string.Join(",", tokenIds),
-                    content.Length > 1000 ? content[..1000] : content);
-            }
-
             return result;
-        }
-        private static void ParseMidpointItem(
-        JsonElement item,
-        Dictionary<string, decimal> result)
-        {
-            if (!item.TryGetProperty("asset_id", out var assetIdEl) &&
-                !item.TryGetProperty("token_id", out assetIdEl))
-                return;
-
-            var tokenId = assetIdEl.GetString();
-            if (string.IsNullOrWhiteSpace(tokenId))
-                return;
-
-            if (!item.TryGetProperty("mid_price", out var midPriceEl) &&
-                !item.TryGetProperty("mid", out midPriceEl) &&
-                !item.TryGetProperty("price", out midPriceEl))
-                return;
-
-            var midPriceStr = midPriceEl.GetString();
-
-            if (decimal.TryParse(
-                    midPriceStr,
-                    System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    out var midPrice) && midPrice > 0)
-            {
-                result[tokenId] = midPrice;
-            }
         }
     }
 }

@@ -11,8 +11,6 @@ namespace Arb.Core.Application.Abstractions.MarketData
 
         void ReplaceSnapshot(FootballQuoteEligibleSnapshotV1 snapshot);
 
-        void MergeAdditionalMarkets(IEnumerable<FootballCatalogMarketV1> markets);
-
         FootballQuoteEligibleSnapshotV1? GetSnapshot();
 
         IReadOnlyCollection<FootballCatalogMarketV1> GetAllMarkets();

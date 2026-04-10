@@ -33,10 +33,6 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             services.Configure<PolymarketObservedSignalOptions>(
                 config.GetSection(PolymarketObservedSignalOptions.SectionName));
 
-            services.AddSingleton<RefreshFootballCatalogSnapshotUseCase>();
-            services.AddSingleton<RefreshNbaCatalogSnapshotUseCase>();
-
-            services.AddSingleton<IPolymarketObservedSignalEngine, PolymarketObservedSignalEngine>();
             // Redis — conversão de URL feita dentro de RedisConnectionFactory
             services.AddSingleton<RedisConnectionFactory>();
             services.AddSingleton<IStreamPublisher, RedisStreamPublisher>();

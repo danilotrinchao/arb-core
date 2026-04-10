@@ -53,22 +53,6 @@ namespace Arb.Core.Application.UseCases.MarketData
             }
         }
 
-        public void MergeAdditionalMarkets(IEnumerable<FootballCatalogMarketV1> markets)
-        {
-            ArgumentNullException.ThrowIfNull(markets);
-
-            lock (_sync)
-            {
-                foreach (var market in markets)
-                {
-                    if (!string.IsNullOrWhiteSpace(market.ConditionId))
-                    {
-                        _byConditionId[market.ConditionId] = market;
-                    }
-                }
-            }
-        }
-
         public FootballQuoteEligibleSnapshotV1? GetSnapshot()
         {
             lock (_sync)
@@ -129,61 +113,30 @@ namespace Arb.Core.Application.UseCases.MarketData
             var no = market.Outcomes.FirstOrDefault(x =>
                 string.Equals(x.BinaryOutcomeRole, "NO", StringComparison.OrdinalIgnoreCase));
 
-            if (yes is not null && no is not null &&
-                !string.IsNullOrWhiteSpace(yes.TokenId) &&
-                !string.IsNullOrWhiteSpace(no.TokenId))
+            if (yes is null || no is null)
             {
-                return new FootballQuoteCandidate
-                {
-                    CatalogId = market.CatalogId,
-                    ConditionId = market.ConditionId,
-                    Question = market.Question,
-                    MarketSlug = market.MarketSlug,
-                    GameStartTime = market.GameStartTime,
-                    SemanticType = market.SemanticType,
-                    ReferencedTeam = market.ReferencedTeam,
-                    YesTokenId = yes.TokenId,
-                    NoTokenId = no.TokenId,
-                    OutcomeRoleA = "YES",
-                    OutcomeRoleB = "NO",
-                    MatchedGammaId = market.MatchedGammaId,
-                    MatchedGammaStartTime = market.MatchedGammaStartTime
-                };
+                return null;
             }
 
-            var sideA = market.Outcomes.FirstOrDefault(x =>
-                string.Equals(x.BinaryOutcomeRole, "SIDE_A", StringComparison.OrdinalIgnoreCase));
-
-            var sideB = market.Outcomes.FirstOrDefault(x =>
-                string.Equals(x.BinaryOutcomeRole, "SIDE_B", StringComparison.OrdinalIgnoreCase));
-
-            if (sideA is not null && sideB is not null &&
-                !string.IsNullOrWhiteSpace(sideA.TokenId) &&
-                !string.IsNullOrWhiteSpace(sideB.TokenId))
+            if (string.IsNullOrWhiteSpace(yes.TokenId) || string.IsNullOrWhiteSpace(no.TokenId))
             {
-                return new FootballQuoteCandidate
-                {
-                    CatalogId = market.CatalogId,
-                    ConditionId = market.ConditionId,
-                    Question = market.Question,
-                    MarketSlug = market.MarketSlug,
-                    GameStartTime = market.GameStartTime,
-                    SemanticType = market.SemanticType,
-                    ReferencedTeam = market.ReferencedTeam,
-                    YesTokenId = sideA.TokenId,
-                    NoTokenId = sideB.TokenId,
-                    SideATokenId = sideA.TokenId,
-                    SideBTokenId = sideB.TokenId,
-                    SideALabel = string.IsNullOrWhiteSpace(sideA.OutcomeLabel) ? null : sideA.OutcomeLabel,
-                    SideBLabel = string.IsNullOrWhiteSpace(sideB.OutcomeLabel) ? null : sideB.OutcomeLabel,
-                    OutcomeRoleA = "SIDE_A",
-                    OutcomeRoleB = "SIDE_B",
-                    MatchedGammaId = market.MatchedGammaId,
-                    MatchedGammaStartTime = market.MatchedGammaStartTime
-                };
+                return null;
             }
 
-            return null;
+            return new FootballQuoteCandidate
+            {
+                CatalogId = market.CatalogId,
+                ConditionId = market.ConditionId,
+                Question = market.Question,
+                MarketSlug = market.MarketSlug,
+                GameStartTime = market.GameStartTime,
+                SemanticType = market.SemanticType,
+                ReferencedTeam = market.ReferencedTeam,
+                YesTokenId = yes.TokenId,
+                NoTokenId = no.TokenId,
+                MatchedGammaId = market.MatchedGammaId,
+                MatchedGammaStartTime = market.MatchedGammaStartTime
+            };
         }
     }
 }

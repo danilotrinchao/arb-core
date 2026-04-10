@@ -32,10 +32,6 @@ namespace Arb.Core.Application.UseCases.MarketData
                     ReferencedTeam = x.ReferencedTeam,
                     YesTokenId = x.YesTokenId,
                     NoTokenId = x.NoTokenId,
-                    SideATokenId = x.SideATokenId,
-                    SideBTokenId = x.SideBTokenId,
-                    OutcomeRoleA = x.OutcomeRoleA,
-                    OutcomeRoleB = x.OutcomeRoleB,
                     MatchedGammaId = x.MatchedGammaId,
                     MatchedGammaStartTime = x.MatchedGammaStartTime
                 })
@@ -53,12 +49,6 @@ namespace Arb.Core.Application.UseCases.MarketData
                 .ToArray();
         }
 
-        /// <summary>
-        /// Valida candidate para entrar na slice ativa.
-        /// Agora agnóstico quanto ao outcome role: aceita qualquer par de tokens válidos.
-        /// - YES/NO (futebol legado)
-        /// - SIDE_A/SIDE_B (NBA H2H)
-        /// </summary>
         private static bool IsValidCandidate(FootballQuoteCandidate candidate)
         {
             if (candidate is null)
@@ -71,14 +61,17 @@ namespace Arb.Core.Application.UseCases.MarketData
                 return false;
             }
 
-            // Precisa ter pelo menos um par válido de tokens
-            var hasYesNo = !string.IsNullOrWhiteSpace(candidate.YesTokenId) &&
-                          !string.IsNullOrWhiteSpace(candidate.NoTokenId);
+            if (string.IsNullOrWhiteSpace(candidate.YesTokenId))
+            {
+                return false;
+            }
 
-            var hasSideAB = !string.IsNullOrWhiteSpace(candidate.SideATokenId) &&
-                           !string.IsNullOrWhiteSpace(candidate.SideBTokenId);
+            if (string.IsNullOrWhiteSpace(candidate.NoTokenId))
+            {
+                return false;
+            }
 
-            return hasYesNo || hasSideAB;
+            return true;
         }
     }
 }
