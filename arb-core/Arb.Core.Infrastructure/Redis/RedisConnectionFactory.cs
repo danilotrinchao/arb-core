@@ -3,13 +3,17 @@ using StackExchange.Redis;
 
 namespace Arb.Core.Infrastructure.Redis
 {
-    public class RedisConnectionFactory : IDisposable
+    public sealed class RedisConnectionFactory : IDisposable
     {
         private readonly Lazy<ConnectionMultiplexer> _lazyConn;
 
         public RedisConnectionFactory(IOptions<RedisOptions> options)
         {
-            var rawConnection = options.Value.Connection;
+            var raw = options.Value.Connection;
+            var rawConnection = !string.IsNullOrWhiteSpace(raw) ? raw
+                : Environment.GetEnvironmentVariable("REDIS_URL")
+                ?? "redis://default:bNZmjbfQCTLczrgbptiJnLyQnYCBjKPW@redis.railway.internal:6379";
+
             var converted = ConvertRedisUrl(rawConnection);
 
             var configuration = ConfigurationOptions.Parse(converted);
@@ -35,7 +39,7 @@ namespace Arb.Core.Infrastructure.Redis
         private static string ConvertRedisUrl(string url)
         {
             if (string.IsNullOrWhiteSpace(url))
-                return "localhost:6379";
+                return "redis://default:bNZmjbfQCTLczrgbptiJnLyQnYCBjKPW@redis.railway.internal:6379";
 
             if (!url.StartsWith("redis://", StringComparison.OrdinalIgnoreCase) &&
                 !url.StartsWith("rediss://", StringComparison.OrdinalIgnoreCase))
@@ -57,7 +61,6 @@ namespace Arb.Core.Infrastructure.Redis
                 if (slashIndex >= 0)
                     hostPart = hostPart[..slashIndex];
 
-                // Railway às vezes entrega host:59446:6379 — usa só a primeira porta
                 var hostSegments = hostPart.Split(':');
                 var host = hostSegments[0];
                 var port = hostSegments.Length >= 2

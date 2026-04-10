@@ -14,7 +14,12 @@ namespace Arb.Core.Infrastructure.Redis.SoccerCatalog
 
             _lazyConnection = new Lazy<ConnectionMultiplexer>(() =>
             {
-                var converted = ConvertRedisUrl(value.ConnectionString);
+                var raw = value.ConnectionString;
+                var connectionString = !string.IsNullOrWhiteSpace(raw) ? raw
+                    : Environment.GetEnvironmentVariable("REDIS_URL")
+                    ?? "redis://default:bNZmjbfQCTLczrgbptiJnLyQnYCBjKPW@redis.railway.internal:6379";
+
+                var converted = ConvertRedisUrl(connectionString);
 
                 var configuration = ConfigurationOptions.Parse(converted);
                 configuration.AbortOnConnectFail = false;
@@ -41,7 +46,7 @@ namespace Arb.Core.Infrastructure.Redis.SoccerCatalog
         private static string ConvertRedisUrl(string url)
         {
             if (string.IsNullOrWhiteSpace(url))
-                return "localhost:6379";
+                return "redis://default:bNZmjbfQCTLczrgbptiJnLyQnYCBjKPW@redis.railway.internal:6379";
 
             if (!url.StartsWith("redis://", StringComparison.OrdinalIgnoreCase) &&
                 !url.StartsWith("rediss://", StringComparison.OrdinalIgnoreCase))
