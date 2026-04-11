@@ -41,7 +41,7 @@ namespace Arb.Core.Infrastructure.Redis.SoccerCatalog
         private static string ConvertRedisUrl(string url)
         {
             if (string.IsNullOrWhiteSpace(url))
-                return "redis://default:bNZmjbfQCTLczrgbptiJnLyQnYCBjKPW@redis.railway.internal:6379";
+                return "redis.railway.internal:6379,abortConnect=false";
 
             if (!url.StartsWith("redis://", StringComparison.OrdinalIgnoreCase) &&
                 !url.StartsWith("rediss://", StringComparison.OrdinalIgnoreCase))
