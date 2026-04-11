@@ -59,10 +59,9 @@ namespace Arb.Core.Infrastructure.Redis
 
                 // Railway às vezes entrega host:59446:6379 — usa só a primeira porta
                 var hostSegments = hostPart.Split(':');
+                var portStr = hostSegments.Length >= 2 ? hostSegments[^1] : "6379";
+                var port = int.TryParse(portStr, out var p) ? p : 6379;
                 var host = hostSegments[0];
-                var port = hostSegments.Length >= 2
-                    ? int.TryParse(hostSegments[1], out var p) ? p : 6379
-                    : 6379;
 
                 var password = string.Empty;
                 if (!string.IsNullOrWhiteSpace(credentials))
