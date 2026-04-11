@@ -201,6 +201,7 @@ namespace Arb.Core.Application.UseCases.Signals
                     NoTokenId = tick.NoTokenId,
                     MatchedGammaId = tick.MatchedGammaId,
                     MatchedGammaStartTime = tick.MatchedGammaStartTime,
+                    GameStartTime = tick.CommenceTime,
                     ProjectionReasonCode = tick.ProjectionReasonCode,
                     GeneratedAt = utcNow.ToString("O")
                 };

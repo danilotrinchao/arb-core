@@ -81,10 +81,14 @@ namespace Arb.Core.Contracts.Common.PolimarketSignals
         [JsonPropertyName("matchedGammaStartTime")]
         public string? MatchedGammaStartTime { get; init; }
 
+        [JsonPropertyName("gameStartTime")]
+        public string? GameStartTime {get; init;}
+
         [JsonPropertyName("projectionReasonCode")]
         public string ProjectionReasonCode { get; init; } = string.Empty;
 
         [JsonPropertyName("generatedAt")]
         public string GeneratedAt { get; init; } = string.Empty;
+
     }
 }
