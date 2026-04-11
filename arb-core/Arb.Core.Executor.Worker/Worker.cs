@@ -203,8 +203,9 @@ namespace Arb.Core.Executor.Worker
                         }
 
                         // Gate: não abrir posição já dentro da janela de fechamento
-                        var commenceTime = TryParseDateTime(intent.MatchedGammaStartTime)
-                            ?? DateTime.UtcNow.AddHours(6);
+                        var commenceTime = TryParseDateTime(intent.GameStartTime)
+                                            ?? TryParseDateTime(intent.MatchedGammaStartTime)
+                                            ?? DateTime.UtcNow.AddHours(6);
 
                         var utcNow = DateTime.UtcNow;
                         var timeToKickoff = commenceTime - utcNow;
