@@ -4,7 +4,7 @@
     {
         public const string SectionName = "FootballCatalogRedis";
 
-        public string ConnectionString { get; set; } = "localhost:6379";
+        public string ConnectionString { get; set; } /*= "localhost:6379";*/
 
         public string SnapshotKey { get; set; } = "pm:football:quote-eligible:current";
 
