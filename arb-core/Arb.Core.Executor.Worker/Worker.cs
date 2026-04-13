@@ -410,24 +410,7 @@ namespace Arb.Core.Executor.Worker
             await _publisher.PublishAsync(_streams.ExecutionReports, fields, ct);
         }
 
-        private static DateTime ResolveCommenceTime(
-            PolymarketOrderIntentV1 intent,
-            DateTime utcNow)
-        {
-            var commenceTimeFromTick = TryParseDateTime(intent.CommenceTime);
-            if (commenceTimeFromTick.HasValue)
-            {
-                return commenceTimeFromTick.Value;
-            }
-
-            var gammaFallback = TryParseDateTime(intent.MatchedGammaStartTime);
-            if (gammaFallback.HasValue && gammaFallback.Value > utcNow)
-            {
-                return gammaFallback.Value;
-            }
-
-            return utcNow.AddHours(6);
-        }
+       
 
         private static double? GetComparableTargetProbability(
             PolymarketOrderIntentV1 intent)
@@ -497,6 +480,31 @@ namespace Arb.Core.Executor.Worker
                 "ACK failed permanently for msgId={MsgId} stream={Stream}",
                 messageId,
                 stream);
+        }
+
+        private static DateTime ResolveCommenceTime(
+        PolymarketOrderIntentV1 intent,
+        DateTime utcNow)
+        {
+            var commenceTimeFromTick = TryParseDateTime(intent.CommenceTime);
+            if (commenceTimeFromTick.HasValue)
+            {
+                return commenceTimeFromTick.Value;
+            }
+
+            var gameStartTimeFallback = TryParseDateTime(intent.GameStartTime);
+            if (gameStartTimeFallback.HasValue)
+            {
+                return gameStartTimeFallback.Value;
+            }
+
+            var gammaFallback = TryParseDateTime(intent.MatchedGammaStartTime);
+            if (gammaFallback.HasValue && gammaFallback.Value > utcNow)
+            {
+                return gammaFallback.Value;
+            }
+
+            return utcNow.AddHours(6);
         }
     }
 }

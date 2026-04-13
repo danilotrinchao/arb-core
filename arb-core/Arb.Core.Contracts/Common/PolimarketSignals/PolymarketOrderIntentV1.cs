@@ -81,6 +81,9 @@ namespace Arb.Core.Contracts.Common.PolimarketSignals
         [JsonPropertyName("matchedGammaStartTime")]
         public string? MatchedGammaStartTime { get; init; }
 
+        [JsonPropertyName("commenceTime")]
+        public string? CommenceTime { get; init; }
+
         [JsonPropertyName("gameStartTime")]
         public string? GameStartTime {get; init;}
 
@@ -89,6 +92,7 @@ namespace Arb.Core.Contracts.Common.PolimarketSignals
 
         [JsonPropertyName("generatedAt")]
         public string GeneratedAt { get; init; } = string.Empty;
+
 
     }
 }
