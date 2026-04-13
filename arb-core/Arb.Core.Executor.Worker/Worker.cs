@@ -67,8 +67,10 @@ namespace Arb.Core.Executor.Worker
             {
                 var portfolioRepo = scope.ServiceProvider
                     .GetRequiredService<IPortfolioRepository>();
+
                 await portfolioRepo.EnsureInitializedAsync(
-                    _executorOptions.InitialBalance, stoppingToken);
+                    _executorOptions.InitialBalance,
+                    stoppingToken);
             }
 
             _logger.LogInformation(
@@ -97,14 +99,16 @@ namespace Arb.Core.Executor.Worker
                 }
                 catch (RedisTimeoutException ex)
                 {
-                    _logger.LogWarning(ex,
+                    _logger.LogWarning(
+                        ex,
                         "Redis timeout reading Polymarket stream. Retrying...");
                     await Task.Delay(1000, stoppingToken);
                     continue;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex,
+                    _logger.LogError(
+                        ex,
                         "Unexpected error reading Polymarket stream");
                     await Task.Delay(1000, stoppingToken);
                     continue;
@@ -132,7 +136,8 @@ namespace Arb.Core.Executor.Worker
                         }
 
                         var intent = JsonSerializer.Deserialize<PolymarketOrderIntentV1>(
-                            payload, JsonOpts);
+                            payload,
+                            JsonOpts);
 
                         if (intent is null)
                         {
@@ -157,19 +162,19 @@ namespace Arb.Core.Executor.Worker
                         if (portfolio is null)
                         {
                             await portfolioRepo.EnsureInitializedAsync(
-                                _executorOptions.InitialBalance, stoppingToken);
+                                _executorOptions.InitialBalance,
+                                stoppingToken);
+
                             portfolio = await portfolioRepo.GetAsync(stoppingToken);
                         }
 
-                        // Gate: limite de posições abertas exclusivo do fluxo Polymarket
                         var openPolymarketPositions =
                             await positionRepo.CountOpenPolymarketAsync(stoppingToken);
 
                         if (openPolymarketPositions >= _risk.MaxPolymarketOpenPositions)
                         {
                             _logger.LogInformation(
-                                "Polymarket intent rejected. Reason=MAX_POLYMARKET_OPEN_POSITIONS " +
-                                "intentId={IntentId} open={Open} max={Max}",
+                                "Polymarket intent rejected. Reason=MAX_POLYMARKET_OPEN_POSITIONS intentId={IntentId} open={Open} max={Max}",
                                 intent.IntentId,
                                 openPolymarketPositions,
                                 _risk.MaxPolymarketOpenPositions);
@@ -182,14 +187,12 @@ namespace Arb.Core.Executor.Worker
                             continue;
                         }
 
-                        // Stake fixo — não depende do balance atual do portfolio
                         var effectiveStake = _risk.PolymarketFixedStakeUsd;
 
                         if (effectiveStake > portfolio!.CurrentBalance)
                         {
                             _logger.LogInformation(
-                                "Polymarket intent rejected. Reason=INSUFFICIENT_BALANCE " +
-                                "intentId={IntentId} stake={Stake} balance={Balance}",
+                                "Polymarket intent rejected. Reason=INSUFFICIENT_BALANCE intentId={IntentId} stake={Stake} balance={Balance}",
                                 intent.IntentId,
                                 effectiveStake,
                                 portfolio.CurrentBalance);
@@ -202,24 +205,22 @@ namespace Arb.Core.Executor.Worker
                             continue;
                         }
 
-                        // Gate: não abrir posição já dentro da janela de fechamento
-                        var commenceTime = TryParseDateTime(intent.GameStartTime)
-                                            ?? TryParseDateTime(intent.MatchedGammaStartTime)
-                                            ?? DateTime.UtcNow.AddHours(6);
-
                         var utcNow = DateTime.UtcNow;
+                        var commenceTime = ResolveCommenceTime(intent, utcNow);
+
                         var timeToKickoff = commenceTime - utcNow;
-                        var kickoffWindow = TimeSpan.FromMinutes(_settlement.MinutesBeforeKickoffToClose);
+                        var kickoffWindow = TimeSpan.FromMinutes(
+                            _settlement.MinutesBeforeKickoffToClose);
 
                         if (timeToKickoff <= kickoffWindow)
                         {
                             _logger.LogInformation(
-                                "Polymarket intent rejected. Reason=INSIDE_KICKOFF_WINDOW " +
-                                "intentId={IntentId} team={Team} conditionId={ConditionId} " +
-                                "timeToKickoff={TimeToKickoff} kickoffWindowMinutes={KickoffWindowMinutes}",
+                                "Polymarket intent rejected. Reason=INSIDE_KICKOFF_WINDOW intentId={IntentId} team={Team} conditionId={ConditionId} commenceTime={CommenceTime} matchedGammaStartTime={MatchedGammaStartTime} timeToKickoff={TimeToKickoff} kickoffWindowMinutes={KickoffWindowMinutes}",
                                 intent.IntentId,
                                 intent.ObservedTeam,
                                 intent.PolymarketConditionId,
+                                intent.CommenceTime ?? "null",
+                                intent.MatchedGammaStartTime ?? "null",
                                 timeToKickoff.ToString(),
                                 _settlement.MinutesBeforeKickoffToClose);
 
@@ -231,33 +232,55 @@ namespace Arb.Core.Executor.Worker
                             continue;
                         }
 
-                        // Consulta o preço real do token na Polymarket CLOB
-                        // Null se a CLOB estiver indisponível — o monitor usará
-                        // last_known_mid_price como fallback
                         double? polymarketEntryPrice = null;
 
                         if (!string.IsNullOrWhiteSpace(intent.TargetTokenId))
                         {
                             var midpoint = await _clobPriceClient.GetMidpointAsync(
-                                intent.TargetTokenId, stoppingToken);
+                                intent.TargetTokenId,
+                                stoppingToken);
 
                             if (midpoint.HasValue)
                             {
                                 polymarketEntryPrice = (double)midpoint.Value;
 
                                 _logger.LogInformation(
-                                    "Polymarket entry price fetched. " +
-                                    "TokenId={TokenId} MidPrice={MidPrice}",
+                                    "Polymarket entry price fetched. TokenId={TokenId} MidPrice={MidPrice}",
                                     intent.TargetTokenId,
                                     polymarketEntryPrice);
                             }
                             else
                             {
                                 _logger.LogWarning(
-                                    "Could not fetch Polymarket entry price for TokenId={TokenId}. " +
-                                    "Position will be opened with null entry price.",
+                                    "Could not fetch Polymarket entry price for TokenId={TokenId}. Position will be opened with null entry price.",
                                     intent.TargetTokenId);
                             }
+                        }
+
+                        // Guard 1:
+                        // não abrir se a entrada já nasce no alvo ou acima do alvo.
+                        var comparableTargetProbability = GetComparableTargetProbability(intent);
+
+                        if (polymarketEntryPrice.HasValue &&
+                            comparableTargetProbability.HasValue &&
+                            polymarketEntryPrice.Value >= comparableTargetProbability.Value)
+                        {
+                            _logger.LogInformation(
+                                "Polymarket intent rejected. Reason=ENTRY_ALREADY_AT_OR_ABOVE_TARGET intentId={IntentId} team={Team} conditionId={ConditionId} targetSide={TargetSide} entryMid={EntryMid:F4} comparableTarget={ComparableTarget:F4} rawTarget={RawTarget:F4}",
+                                intent.IntentId,
+                                intent.ObservedTeam,
+                                intent.PolymarketConditionId,
+                                intent.TargetSide,
+                                polymarketEntryPrice.Value,
+                                comparableTargetProbability.Value,
+                                intent.TargetProbability);
+
+                            await _consumer.AckAsync(
+                                _streams.PolymarketOrderIntents,
+                                PolymarketGroupName,
+                                msg.Id,
+                                stoppingToken);
+                            continue;
                         }
 
                         var positionId = await positionRepo.CreateOpenAsync(
@@ -296,8 +319,11 @@ namespace Arb.Core.Executor.Worker
                         }
 
                         var afterEntryBalance = portfolio.CurrentBalance - effectiveStake;
+
                         await portfolioRepo.UpdateBalanceAsync(
-                            afterEntryBalance, DateTime.UtcNow, stoppingToken);
+                            afterEntryBalance,
+                            DateTime.UtcNow,
+                            stoppingToken);
 
                         var opened = new ExecutionReportV1(
                             SchemaVersion: "1.0.0",
@@ -311,16 +337,13 @@ namespace Arb.Core.Executor.Worker
                             TxHash: null,
                             Error: null);
 
-                        await PersistAndPublishReportAsync(opened, reportRepo, stoppingToken);
+                        await PersistAndPublishReportAsync(
+                            opened,
+                            reportRepo,
+                            stoppingToken);
 
                         _logger.LogInformation(
-                            "POLYMARKET_SIMULATED_POSITION opened. " +
-                            "intentId={IntentId} conditionId={ConditionId} " +
-                            "team={Team} sel={Sel} side={Side} direction={Direction} " +
-                            "asiaProbability={AsiaProbability:F4} " +
-                            "polymarketMid={PolymarketMid} " +
-                            "target={Target:F4} stake={Stake} " +
-                            "move={Move:F4}pp sources={Sources}",
+                            "POLYMARKET_SIMULATED_POSITION opened. intentId={IntentId} conditionId={ConditionId} team={Team} sel={Sel} side={Side} direction={Direction} asiaProbability={AsiaProbability:F4} polymarketMid={PolymarketMid} target={Target:F4} comparableTarget={ComparableTarget} commenceTime={CommenceTime} stake={Stake} move={Move:F4}pp sources={Sources}",
                             intent.IntentId,
                             intent.PolymarketConditionId,
                             intent.ObservedTeam,
@@ -332,6 +355,10 @@ namespace Arb.Core.Executor.Worker
                                 ? polymarketEntryPrice.Value.ToString("F4", CultureInfo.InvariantCulture)
                                 : "N/A",
                             intent.TargetProbability,
+                            comparableTargetProbability.HasValue
+                                ? comparableTargetProbability.Value.ToString("F4", CultureInfo.InvariantCulture)
+                                : "N/A",
+                            commenceTime.ToString("O"),
                             effectiveStake,
                             intent.MovementPercent,
                             intent.SupportingSources);
@@ -344,8 +371,10 @@ namespace Arb.Core.Executor.Worker
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex,
-                            "Executor error processing msgId={MsgId}", msg.Id);
+                        _logger.LogError(
+                            ex,
+                            "Executor error processing msgId={MsgId}",
+                            msg.Id);
 
                         await AckWithRetryAsync(
                             _streams.PolymarketOrderIntents,
@@ -381,6 +410,50 @@ namespace Arb.Core.Executor.Worker
             await _publisher.PublishAsync(_streams.ExecutionReports, fields, ct);
         }
 
+        private static DateTime ResolveCommenceTime(
+            PolymarketOrderIntentV1 intent,
+            DateTime utcNow)
+        {
+            var commenceTimeFromTick = TryParseDateTime(intent.CommenceTime);
+            if (commenceTimeFromTick.HasValue)
+            {
+                return commenceTimeFromTick.Value;
+            }
+
+            var gammaFallback = TryParseDateTime(intent.MatchedGammaStartTime);
+            if (gammaFallback.HasValue && gammaFallback.Value > utcNow)
+            {
+                return gammaFallback.Value;
+            }
+
+            return utcNow.AddHours(6);
+        }
+
+        private static double? GetComparableTargetProbability(
+            PolymarketOrderIntentV1 intent)
+        {
+            var rawTarget = (double)intent.TargetProbability;
+
+            if (rawTarget <= 0) return 0;
+            if (rawTarget >= 1) return 1;
+
+            var targetSide = intent.TargetSide ?? string.Empty;
+
+            if (string.Equals(targetSide, "YES", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(targetSide, "SIDE_A", StringComparison.OrdinalIgnoreCase))
+            {
+                return Math.Round(rawTarget, 4, MidpointRounding.AwayFromZero);
+            }
+
+            if (string.Equals(targetSide, "NO", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(targetSide, "SIDE_B", StringComparison.OrdinalIgnoreCase))
+            {
+                return Math.Round(1d - rawTarget, 4, MidpointRounding.AwayFromZero);
+            }
+
+            return Math.Round(rawTarget, 4, MidpointRounding.AwayFromZero);
+        }
+
         private static DateTime? TryParseDateTime(string? value)
         {
             if (string.IsNullOrWhiteSpace(value))
@@ -410,16 +483,20 @@ namespace Arb.Core.Executor.Worker
                 }
                 catch (RedisTimeoutException ex)
                 {
-                    _logger.LogWarning(ex,
+                    _logger.LogWarning(
+                        ex,
                         "ACK timeout for msgId={MsgId} attempt={Attempt}",
-                        messageId, attempt);
+                        messageId,
+                        attempt);
+
                     await Task.Delay(500 * attempt, ct);
                 }
             }
 
             _logger.LogError(
                 "ACK failed permanently for msgId={MsgId} stream={Stream}",
-                messageId, stream);
+                messageId,
+                stream);
         }
     }
 }

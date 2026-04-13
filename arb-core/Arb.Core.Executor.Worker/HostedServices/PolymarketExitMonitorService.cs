@@ -15,6 +15,11 @@ namespace Arb.Core.Executor.Worker.HostedServices
         private const string ExitKickoffNoPrice = "KICKOFF_NO_PRICE";
         private const string ExitExpiredNoClose = "EXPIRED_NO_CLOSE";
 
+        // Guard 2:
+        // só consideramos convergência válida se houver melhora mínima real
+        // sobre o preço de entrada na Polymarket.
+        private const double MinImprovementOverEntryToConverge = 0.02d;
+
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly PolymarketClobPriceClient _clobPriceClient;
         private readonly SettlementOptions _settlementOptions;
@@ -154,19 +159,39 @@ namespace Arb.Core.Executor.Worker.HostedServices
 
             var comparableTargetProbability = GetComparableTargetProbability(position);
 
+            // Guard 2: só fecha por convergência se houve melhora mínima real
+            // acima do preço de entrada na Polymarket.
+            var entryForConvergence = position.PolymarketEntryPrice ?? position.EntryPrice;
+            double? minConvergedExitPrice = null;
+
+            if (entryForConvergence > 0)
+            {
+                minConvergedExitPrice = Math.Round(
+                    entryForConvergence + MinImprovementOverEntryToConverge,
+                    4,
+                    MidpointRounding.AwayFromZero);
+            }
+
+            var hasImprovedSinceEntry =
+                currentMidPrice.HasValue &&
+                minConvergedExitPrice.HasValue &&
+                (double)currentMidPrice.Value >= minConvergedExitPrice.Value;
+
             if (!kickoffPassed &&
                 currentMidPrice.HasValue &&
                 comparableTargetProbability.HasValue &&
-                currentMidPrice.Value >= (decimal)comparableTargetProbability.Value)
+                currentMidPrice.Value >= (decimal)comparableTargetProbability.Value &&
+                hasImprovedSinceEntry)
             {
                 _logger.LogInformation(
                     "Convergence reached. positionId={PositionId} team={Team} " +
-                    "mid={Mid:F4} comparableTarget={ComparableTarget:F4} rawTarget={RawTarget:F4} " +
+                    "mid={Mid:F4} comparableTarget={ComparableTarget:F4} requiredExit={RequiredExit:F4} rawTarget={RawTarget:F4} " +
                     "targetSide={TargetSide} entry={Entry} timeToKickoff={TimeToKickoff}",
                     position.Id,
                     position.ObservedTeam,
                     currentMidPrice.Value,
                     comparableTargetProbability.Value,
+                    minConvergedExitPrice.Value,
                     position.TargetProbability ?? 0,
                     position.TargetSide,
                     position.PolymarketEntryPrice?.ToString("F4", CultureInfo.InvariantCulture) ?? "N/A",
@@ -192,13 +217,16 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     _logger.LogInformation(
                         "Kickoff window reached — closing with current price. " +
                         "positionId={PositionId} team={Team} " +
-                        "mid={Mid:F4} comparableTarget={ComparableTarget} rawTarget={RawTarget} " +
+                        "mid={Mid:F4} comparableTarget={ComparableTarget} requiredExit={RequiredExit} rawTarget={RawTarget} " +
                         "targetSide={TargetSide} timeToKickoff={TimeToKickoff}",
                         position.Id,
                         position.ObservedTeam,
                         currentMidPrice.Value,
                         comparableTargetProbability.HasValue
                             ? comparableTargetProbability.Value.ToString("F4", CultureInfo.InvariantCulture)
+                            : "N/A",
+                        minConvergedExitPrice.HasValue
+                            ? minConvergedExitPrice.Value.ToString("F4", CultureInfo.InvariantCulture)
                             : "N/A",
                         position.TargetProbability?.ToString("F4", CultureInfo.InvariantCulture) ?? "N/A",
                         position.TargetSide,
@@ -296,7 +324,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
 
             _logger.LogDebug(
                 "Position monitoring. positionId={PositionId} team={Team} " +
-                "mid={Mid} comparableTarget={ComparableTarget} rawTarget={RawTarget} " +
+                "mid={Mid} comparableTarget={ComparableTarget} requiredExit={RequiredExit} rawTarget={RawTarget} " +
                 "targetSide={TargetSide} entry={Entry} timeToKickoff={TimeToKickoff}",
                 position.Id,
                 position.ObservedTeam,
@@ -305,6 +333,9 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     : "N/A",
                 comparableTargetProbability.HasValue
                     ? comparableTargetProbability.Value.ToString("F4", CultureInfo.InvariantCulture)
+                    : "N/A",
+                minConvergedExitPrice.HasValue
+                    ? minConvergedExitPrice.Value.ToString("F4", CultureInfo.InvariantCulture)
                     : "N/A",
                 position.TargetProbability?.ToString("F4", CultureInfo.InvariantCulture) ?? "N/A",
                 position.TargetSide,
