@@ -19,6 +19,13 @@ namespace Arb.Core.Executor.Worker
         private const string PolymarketConsumerName = "executor-polymarket-1";
         private const string PolymarketMarketType = "TEAM_TO_WIN_YES_NO";
 
+        // Regra mínima de edge para abrir posição
+        // Se a distância entre entrada e alvo comparável for menor que isso,
+        // a posição já nasce fraca e tende a:
+        // - convergir sem ganho relevante
+        // - ou ocupar slot até o kickoff fallback
+        private const double MinHeadroomToTargetToOpen = 0.02d;
+
         private readonly ILogger<Worker> _logger;
         private readonly IStreamConsumer _consumer;
         private readonly IStreamPublisher _publisher;
@@ -257,10 +264,10 @@ namespace Arb.Core.Executor.Worker
                             }
                         }
 
-                        // Guard 1:
-                        // não abrir se a entrada já nasce no alvo ou acima do alvo.
                         var comparableTargetProbability = GetComparableTargetProbability(intent);
 
+                        // Guard 1:
+                        // rejeita quando a entrada já nasce no alvo ou acima do alvo
                         if (polymarketEntryPrice.HasValue &&
                             comparableTargetProbability.HasValue &&
                             polymarketEntryPrice.Value >= comparableTargetProbability.Value)
@@ -281,6 +288,40 @@ namespace Arb.Core.Executor.Worker
                                 msg.Id,
                                 stoppingToken);
                             continue;
+                        }
+
+                        // Guard 2:
+                        // rejeita quando a folga até o alvo comparável é menor que o mínimo exigido
+                        // Isso evita entradas "quase no alvo", que tendem a:
+                        // - gerar CONVERGED com ganho irrelevante
+                        // - ou morrer no kickoff fallback
+                        if (polymarketEntryPrice.HasValue &&
+                            comparableTargetProbability.HasValue)
+                        {
+                            var headroomToTarget =
+                                comparableTargetProbability.Value - polymarketEntryPrice.Value;
+
+                            if (headroomToTarget < MinHeadroomToTargetToOpen)
+                            {
+                                _logger.LogInformation(
+                                    "Polymarket intent rejected. Reason=ENTRY_HEADROOM_BELOW_MINIMUM intentId={IntentId} team={Team} conditionId={ConditionId} targetSide={TargetSide} entryMid={EntryMid:F4} comparableTarget={ComparableTarget:F4} headroom={Headroom:F4} minHeadroom={MinHeadroom:F4} rawTarget={RawTarget:F4}",
+                                    intent.IntentId,
+                                    intent.ObservedTeam,
+                                    intent.PolymarketConditionId,
+                                    intent.TargetSide,
+                                    polymarketEntryPrice.Value,
+                                    comparableTargetProbability.Value,
+                                    headroomToTarget,
+                                    MinHeadroomToTargetToOpen,
+                                    intent.TargetProbability);
+
+                                await _consumer.AckAsync(
+                                    _streams.PolymarketOrderIntents,
+                                    PolymarketGroupName,
+                                    msg.Id,
+                                    stoppingToken);
+                                continue;
+                            }
                         }
 
                         var positionId = await positionRepo.CreateOpenAsync(
@@ -410,8 +451,6 @@ namespace Arb.Core.Executor.Worker
             await _publisher.PublishAsync(_streams.ExecutionReports, fields, ct);
         }
 
-       
-
         private static double? GetComparableTargetProbability(
             PolymarketOrderIntentV1 intent)
         {
@@ -483,8 +522,8 @@ namespace Arb.Core.Executor.Worker
         }
 
         private static DateTime ResolveCommenceTime(
-        PolymarketOrderIntentV1 intent,
-        DateTime utcNow)
+            PolymarketOrderIntentV1 intent,
+            DateTime utcNow)
         {
             var commenceTimeFromTick = TryParseDateTime(intent.CommenceTime);
             if (commenceTimeFromTick.HasValue)
