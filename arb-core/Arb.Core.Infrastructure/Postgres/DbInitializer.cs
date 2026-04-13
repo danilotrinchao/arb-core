@@ -73,51 +73,58 @@ namespace Arb.Core.Infrastructure.Postgres
                     pnl                         DOUBLE PRECISION NULL,
                     closed_at                   TIMESTAMPTZ NULL,
                     created_at                  TIMESTAMPTZ NOT NULL,
-
-                    -- Campos do fluxo Polymarket
                     observed_team               VARCHAR(200) NULL,
                     polymarket_condition_id     VARCHAR(200) NULL,
-
-                    -- Preço real de entrada na Polymarket (midpoint CLOB no momento da abertura)
-                    -- Separado de entry_price que continha a odd asiática (escala errada)
                     polymarket_entry_price      DOUBLE PRECISION NULL,
-
-                    -- Alvo de convergência em probabilidade implícita (1 / odd_decimal asiática)
-                    -- O monitor fecha quando mid_price >= target_probability
                     target_probability          DOUBLE PRECISION NULL,
-
-                    -- Último midpoint consultado com sucesso na CLOB
-                    -- Usado como fallback quando a CLOB falha no momento do kickoff
+                    target_token_id             VARCHAR(200) NULL,
                     last_known_mid_price        DOUBLE PRECISION NULL,
-
-                    -- Timestamp da última consulta bem-sucedida
-                    -- Permite detectar preços stale (muito antigos para ser confiáveis)
                     last_price_checked_at       TIMESTAMPTZ NULL,
-
-                    -- Preço real de saída no momento do fechamento
                     close_price                 DOUBLE PRECISION NULL,
-
-                    -- Motivo do fechamento:
-                    -- CONVERGED           → mid_price atingiu target_probability
-                    -- KICKOFF_FALLBACK    → fechado antes do kickoff por tempo
-                    -- KICKOFF_NO_PRICE    → fechado antes do kickoff sem preço confiável
-                    -- EXPIRED_NO_CLOSE    → jogo começou com posição ainda aberta
-                    -- MANUAL             → fechado manualmente
                     exit_reason                 VARCHAR(50) NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS position_closure_analytics (
+                    position_id                             UUID PRIMARY KEY,
+                    intent_id                               UUID NOT NULL,
+                    sport_key                               VARCHAR(100) NOT NULL,
+                    event_key                               VARCHAR(200) NOT NULL,
+                    market_type                             VARCHAR(50) NOT NULL,
+                    selection_key                           VARCHAR(50) NOT NULL,
+                    target_side                             VARCHAR(10) NULL,
+                    observed_team                           VARCHAR(200) NULL,
+                    polymarket_condition_id                 VARCHAR(200) NULL,
+                    target_token_id                         VARCHAR(200) NULL,
+                    commence_time                           TIMESTAMPTZ NOT NULL,
+                    opened_at                               TIMESTAMPTZ NOT NULL,
+                    closed_at                               TIMESTAMPTZ NOT NULL,
+                    stake                                   DOUBLE PRECISION NOT NULL,
+                    entry_price                             DOUBLE PRECISION NOT NULL,
+                    polymarket_entry_price                  DOUBLE PRECISION NULL,
+                    close_price                             DOUBLE PRECISION NULL,
+                    pnl                                     DOUBLE PRECISION NULL,
+                    exit_reason                             VARCHAR(50) NOT NULL,
+                    target_probability                      DOUBLE PRECISION NULL,
+                    last_known_mid_price                    DOUBLE PRECISION NULL,
+                    last_price_checked_at                   TIMESTAMPTZ NULL,
+                    time_to_kickoff_at_entry_seconds        DOUBLE PRECISION NOT NULL,
+                    time_to_kickoff_at_close_seconds        DOUBLE PRECISION NOT NULL,
+                    had_missing_midpoint_at_close           BOOLEAN NOT NULL,
+                    used_last_known_mid_price_fallback      BOOLEAN NOT NULL,
+                    created_at                              TIMESTAMPTZ NOT NULL
+                );
+
                 -- Adições incrementais para ambientes existentes
-                -- ADD COLUMN IF NOT EXISTS não falha se a coluna já existir
                 ALTER TABLE positions ADD COLUMN IF NOT EXISTS observed_team VARCHAR(200) NULL;
                 ALTER TABLE positions ADD COLUMN IF NOT EXISTS polymarket_condition_id VARCHAR(200) NULL;
                 ALTER TABLE positions ADD COLUMN IF NOT EXISTS polymarket_entry_price DOUBLE PRECISION NULL;
                 ALTER TABLE positions ADD COLUMN IF NOT EXISTS target_probability DOUBLE PRECISION NULL;
+                ALTER TABLE positions ADD COLUMN IF NOT EXISTS target_token_id VARCHAR(200) NULL;
                 ALTER TABLE positions ADD COLUMN IF NOT EXISTS last_known_mid_price DOUBLE PRECISION NULL;
                 ALTER TABLE positions ADD COLUMN IF NOT EXISTS last_price_checked_at TIMESTAMPTZ NULL;
                 ALTER TABLE positions ADD COLUMN IF NOT EXISTS close_price DOUBLE PRECISION NULL;
                 ALTER TABLE positions ADD COLUMN IF NOT EXISTS exit_reason VARCHAR(50) NULL;
 
-                -- Índices
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_positions_intent_id
                     ON positions(intent_id);
 
@@ -127,8 +134,6 @@ namespace Arb.Core.Infrastructure.Postgres
                 CREATE INDEX IF NOT EXISTS ix_positions_commence_time
                     ON positions(commence_time);
 
-                -- Índice composto para a query principal do monitor de saída:
-                -- busca posições abertas do fluxo Polymarket ordenadas por kickoff
                 CREATE INDEX IF NOT EXISTS ix_positions_open_polymarket
                     ON positions(status, target_side, commence_time)
                     WHERE target_side IS NOT NULL;
@@ -138,6 +143,18 @@ namespace Arb.Core.Infrastructure.Postgres
 
                 CREATE INDEX IF NOT EXISTS ix_execution_reports_intent_id
                     ON execution_reports(intent_id);
+
+                CREATE INDEX IF NOT EXISTS ix_position_closure_analytics_closed_at
+                    ON position_closure_analytics(closed_at);
+
+                CREATE INDEX IF NOT EXISTS ix_position_closure_analytics_sport_key
+                    ON position_closure_analytics(sport_key);
+
+                CREATE INDEX IF NOT EXISTS ix_position_closure_analytics_exit_reason
+                    ON position_closure_analytics(exit_reason);
+
+                CREATE INDEX IF NOT EXISTS ix_position_closure_analytics_intent_id
+                    ON position_closure_analytics(intent_id);
                 """;
 
             await conn.ExecuteAsync(sql);

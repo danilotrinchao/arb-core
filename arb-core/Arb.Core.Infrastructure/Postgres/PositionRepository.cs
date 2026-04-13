@@ -38,8 +38,6 @@ namespace Arb.Core.Infrastructure.Postgres
             var affected = await conn.ExecuteAsync(sql, new
             {
                 Id = id,
-                // IntentId vem como string hex sem hífens (ToString("N"))
-                // Postgres exige UUID — TryParse aceita o formato sem hífens
                 IntentId = Guid.TryParse(position.IntentId, out var intentGuid)
                     ? intentGuid
                     : Guid.Empty,
@@ -61,8 +59,6 @@ namespace Arb.Core.Infrastructure.Postgres
                 position.CreatedAt
             });
 
-            // ON CONFLICT retorna 0 linhas afetadas quando há duplicata
-            // O Worker interpreta Guid.Empty como intent duplicado e faz apenas ACK
             return affected == 0 ? Guid.Empty : id;
         }
 
@@ -77,8 +73,6 @@ namespace Arb.Core.Infrastructure.Postgres
             await using var conn = _factory.Create();
             await conn.OpenAsync(ct);
 
-            // close_price e exit_reason gravados atomicamente com o fechamento
-            // Evita estado inconsistente (CLOSED sem motivo) em caso de falha parcial
             const string sql = """
                 UPDATE positions
                 SET status      = 'CLOSED',
@@ -99,9 +93,6 @@ namespace Arb.Core.Infrastructure.Postgres
             });
         }
 
-        // Chamado pelo monitor após cada consulta bem-sucedida à CLOB
-        // Mantém o last_known_mid_price atualizado para uso no fallback de kickoff
-        // quando a CLOB estiver indisponível no momento crítico
         public async Task UpdateLastKnownMidPriceAsync(
             Guid positionId,
             double midPrice,
@@ -127,7 +118,6 @@ namespace Arb.Core.Infrastructure.Postgres
             });
         }
 
-        // Conta todas as posições abertas — usado pelo fluxo legado (será removido no Passo 8)
         public async Task<int> CountOpenAsync(CancellationToken ct)
         {
             await using var conn = _factory.Create();
@@ -137,8 +127,6 @@ namespace Arb.Core.Infrastructure.Postgres
                 "SELECT COUNT(1) FROM positions WHERE status = 'OPEN';");
         }
 
-        // Conta apenas posições abertas do fluxo Polymarket
-        // target_side IS NOT NULL é a marca que distingue posições Polymarket das legadas
         public async Task<int> CountOpenPolymarketAsync(CancellationToken ct)
         {
             await using var conn = _factory.Create();
@@ -148,9 +136,6 @@ namespace Arb.Core.Infrastructure.Postgres
                 "SELECT COUNT(1) FROM positions WHERE status = 'OPEN' AND target_side IS NOT NULL;");
         }
 
-        // Posições legadas elegíveis para settlement via TheOddsApi scores
-        // Filtro target_side IS NULL garante que posições Polymarket não entrem aqui
-        // Mantido por compatibilidade — não será mais chamado após Passo 8
         public async Task<IReadOnlyList<OpenPositionForSettlement>> ListEligibleOpenAsync(
             DateTime nowUtc,
             int maxBatchSize,
@@ -162,6 +147,7 @@ namespace Arb.Core.Infrastructure.Postgres
             const string sql = """
                 SELECT
                     id                      AS Id,
+                    intent_id               AS IntentId,
                     sport_key               AS SportKey,
                     event_key               AS EventKey,
                     home_team               AS HomeTeam,
@@ -197,10 +183,6 @@ namespace Arb.Core.Infrastructure.Postgres
             return result.ToList();
         }
 
-        // Query principal do monitor de saída
-        // Retorna TODAS as posições Polymarket abertas, independente de data
-        // Ordenadas por kickoff ASC — posições mais urgentes primeiro
-        // O índice ix_positions_open_polymarket criado no Passo 1 cobre esta query
         public async Task<IReadOnlyList<OpenPositionForSettlement>> ListOpenPolymarketPositionsAsync(
             CancellationToken ct)
         {
@@ -210,6 +192,7 @@ namespace Arb.Core.Infrastructure.Postgres
             const string sql = """
                 SELECT
                     id                      AS Id,
+                    intent_id               AS IntentId,
                     sport_key               AS SportKey,
                     event_key               AS EventKey,
                     home_team               AS HomeTeam,
@@ -239,8 +222,6 @@ namespace Arb.Core.Infrastructure.Postgres
             return result.ToList();
         }
 
-        // Posições Polymarket abertas filtradas por data de kickoff
-        // Usada pelo WebSocket settlement — mantida por compatibilidade
         public async Task<IReadOnlyList<OpenPositionForSettlement>> ListOpenPolymarketPositionsByDateAsync(
             DateOnly date,
             CancellationToken ct)
@@ -251,6 +232,7 @@ namespace Arb.Core.Infrastructure.Postgres
             const string sql = """
                 SELECT
                     id                      AS Id,
+                    intent_id               AS IntentId,
                     sport_key               AS SportKey,
                     event_key               AS EventKey,
                     home_team               AS HomeTeam,

@@ -37,19 +37,17 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             services.AddSingleton<RefreshNbaCatalogSnapshotUseCase>();
 
             services.AddSingleton<IPolymarketObservedSignalEngine, PolymarketObservedSignalEngine>();
-            // Redis — conversão de URL feita dentro de RedisConnectionFactory
+
             services.AddSingleton<RedisConnectionFactory>();
             services.AddSingleton<IStreamPublisher, RedisStreamPublisher>();
             services.AddSingleton<IStreamConsumer, RedisStreamConsumer>();
 
-            // Reutiliza a conexão do RedisConnectionFactory para evitar duas conexões abertas
             services.AddSingleton<IConnectionMultiplexer>(sp =>
             {
                 var factory = sp.GetRequiredService<RedisConnectionFactory>();
                 return factory.Connection;
             });
 
-            // Postgres — converte URL do Railway para formato Npgsql
             services.AddSingleton<NpgsqlConnectionFactory>(sp =>
             {
                 var rawConnectionString =
@@ -64,12 +62,13 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             });
 
             services.AddSingleton<DbInitializer>();
+
             services.AddScoped<IOrderIntentRepository, OrderIntentRepository>();
             services.AddScoped<IExecutionReportRepository, ExecutionReportRepository>();
             services.AddScoped<IPortfolioRepository, PortfolioRepository>();
             services.AddScoped<IPositionRepository, PositionRepository>();
+            services.AddScoped<IPositionAnalyticsRepository, PositionAnalyticsRepository>();
 
-            // The Odds API
             services.Configure<TheOddsApiOptions>(config.GetSection(TheOddsApiOptions.SectionName));
 
             services.AddHttpClient<TheOddsApiClient>((sp, client) =>
@@ -90,7 +89,6 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             services.AddSingleton<CreditBudgetService>();
             services.AddSingleton<SnapshotDedupService>();
 
-            // Soccer Catalog Redis — conversão de URL feita dentro de FootballCatalogRedisConnectionFactory
             services.Configure<FootballCatalogRedisOptions>(
                 config.GetSection(FootballCatalogRedisOptions.SectionName));
 
@@ -106,10 +104,6 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             return services;
         }
 
-        /// <summary>
-        /// Converte postgresql://user:pass@host:port/db para o formato Npgsql key-value.
-        /// Retorna sem alteração se já estiver no formato correto.
-        /// </summary>
         private static string ConvertPostgresUrl(string url)
         {
             if (string.IsNullOrWhiteSpace(url))

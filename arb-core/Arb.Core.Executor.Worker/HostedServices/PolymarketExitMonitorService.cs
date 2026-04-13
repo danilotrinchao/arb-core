@@ -10,7 +10,6 @@ namespace Arb.Core.Executor.Worker.HostedServices
 {
     public class PolymarketExitMonitorService : BackgroundService
     {
-        // Motivos de fechamento — gravados em exit_reason para auditoria completa
         private const string ExitConverged = "CONVERGED";
         private const string ExitKickoffFallback = "KICKOFF_FALLBACK";
         private const string ExitKickoffNoPrice = "KICKOFF_NO_PRICE";
@@ -129,14 +128,13 @@ namespace Arb.Core.Executor.Worker.HostedServices
             }
         }
 
-
         private async Task ProcessPositionAsync(
-    OpenPositionForSettlement position,
-    IReadOnlyDictionary<string, decimal> midPrices,
-    DateTime utcNow,
-    IPositionRepository positionRepo,
-    IServiceScope scope,
-    CancellationToken ct)
+            OpenPositionForSettlement position,
+            IReadOnlyDictionary<string, decimal> midPrices,
+            DateTime utcNow,
+            IPositionRepository positionRepo,
+            IServiceScope scope,
+            CancellationToken ct)
         {
             var timeToKickoff = position.CommenceTime - utcNow;
             var kickoffWindowReached = timeToKickoff <= TimeSpan.FromMinutes(_settlementOptions.MinutesBeforeKickoffToClose);
@@ -156,7 +154,6 @@ namespace Arb.Core.Executor.Worker.HostedServices
 
             var comparableTargetProbability = GetComparableTargetProbability(position);
 
-            // 1) Convergência só faz sentido ANTES do kickoff
             if (!kickoffPassed &&
                 currentMidPrice.HasValue &&
                 comparableTargetProbability.HasValue &&
@@ -182,11 +179,12 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     utcNow: utcNow,
                     positionRepo: positionRepo,
                     scope: scope,
+                    hadMissingMidpointAtClose: false,
+                    usedLastKnownMidPriceFallback: false,
                     ct: ct);
                 return;
             }
 
-            // 2) Janela de kickoff: tenta fechar com preço atual ou último preço conhecido
             if (kickoffWindowReached)
             {
                 if (currentMidPrice.HasValue)
@@ -213,6 +211,8 @@ namespace Arb.Core.Executor.Worker.HostedServices
                         utcNow: utcNow,
                         positionRepo: positionRepo,
                         scope: scope,
+                        hadMissingMidpointAtClose: false,
+                        usedLastKnownMidPriceFallback: false,
                         ct: ct);
                     return;
                 }
@@ -240,12 +240,13 @@ namespace Arb.Core.Executor.Worker.HostedServices
                             utcNow: utcNow,
                             positionRepo: positionRepo,
                             scope: scope,
+                            hadMissingMidpointAtClose: true,
+                            usedLastKnownMidPriceFallback: true,
                             ct: ct);
                         return;
                     }
                 }
 
-                // Se já passou do kickoff e ainda não temos preço confiável
                 if (kickoffPassed)
                 {
                     _logger.LogError(
@@ -265,6 +266,8 @@ namespace Arb.Core.Executor.Worker.HostedServices
                         utcNow: utcNow,
                         positionRepo: positionRepo,
                         scope: scope,
+                        hadMissingMidpointAtClose: true,
+                        usedLastKnownMidPriceFallback: false,
                         ct: ct);
                     return;
                 }
@@ -285,6 +288,8 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     utcNow: utcNow,
                     positionRepo: positionRepo,
                     scope: scope,
+                    hadMissingMidpointAtClose: true,
+                    usedLastKnownMidPriceFallback: false,
                     ct: ct);
                 return;
             }
@@ -306,6 +311,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 position.PolymarketEntryPrice?.ToString("F4", CultureInfo.InvariantCulture) ?? "N/A",
                 timeToKickoff.ToString(@"hh\:mm\:ss"));
         }
+
         private static double? GetComparableTargetProbability(OpenPositionForSettlement position)
         {
             if (!position.TargetProbability.HasValue) return null;
@@ -316,21 +322,18 @@ namespace Arb.Core.Executor.Worker.HostedServices
 
             var targetSide = position.TargetSide ?? string.Empty;
 
-            // YES / SIDE_A usam o alvo como está
             if (string.Equals(targetSide, "YES", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(targetSide, "SIDE_A", StringComparison.OrdinalIgnoreCase))
             {
                 return Math.Round(rawTarget, 4, MidpointRounding.AwayFromZero);
             }
 
-            // NO / SIDE_B precisam do complementar
             if (string.Equals(targetSide, "NO", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(targetSide, "SIDE_B", StringComparison.OrdinalIgnoreCase))
             {
                 return Math.Round(1d - rawTarget, 4, MidpointRounding.AwayFromZero);
             }
 
-            // fallback defensivo
             return Math.Round(rawTarget, 4, MidpointRounding.AwayFromZero);
         }
 
@@ -341,12 +344,10 @@ namespace Arb.Core.Executor.Worker.HostedServices
             DateTime utcNow,
             IPositionRepository positionRepo,
             IServiceScope scope,
+            bool hadMissingMidpointAtClose,
+            bool usedLastKnownMidPriceFallback,
             CancellationToken ct)
         {
-            // PnL calculado como diferença de preço em probabilidade * tokens comprados
-            // tokens = stake / entryPrice
-            // PnL = (closePrice - entryPrice) * tokens
-            //     = (closePrice - entryPrice) * (stake / entryPrice)
             double? pnl = null;
             var entryPrice = position.PolymarketEntryPrice ?? position.EntryPrice;
 
@@ -365,19 +366,16 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 exitReason: exitReason,
                 ct: ct);
 
-            // Atualiza o balance do portfolio
             var portfolioRepo = scope.ServiceProvider
                 .GetRequiredService<IPortfolioRepository>();
 
             var portfolio = await portfolioRepo.GetAsync(ct);
             if (portfolio is not null)
             {
-                // Devolve o stake + PnL ao portfolio
                 var newBalance = portfolio.CurrentBalance + position.Stake + (pnl ?? 0);
                 await portfolioRepo.UpdateBalanceAsync(newBalance, utcNow, ct);
             }
 
-            // Publica execution report
             var reportRepo = scope.ServiceProvider
                 .GetRequiredService<IExecutionReportRepository>();
 
@@ -393,7 +391,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
             var report = new ExecutionReportV1(
                 SchemaVersion: "1.0.0",
                 ReportId: Guid.NewGuid().ToString("N"),
-                IntentId: position.Id.ToString("N"),
+                IntentId: position.IntentId.ToString("N"),
                 CorrelationId: $"{position.EventKey}|{position.SelectionKey}|{exitReason}",
                 Ts: utcNow,
                 Status: statusLabel,
@@ -405,6 +403,40 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     : null);
 
             await reportRepo.InsertAsync(report, ct);
+
+            var analyticsRepo = scope.ServiceProvider
+                .GetRequiredService<IPositionAnalyticsRepository>();
+
+            var analytics = new PositionClosureAnalytics(
+                PositionId: position.Id,
+                IntentId: position.IntentId,
+                SportKey: position.SportKey,
+                EventKey: position.EventKey,
+                MarketType: position.MarketType,
+                SelectionKey: position.SelectionKey,
+                TargetSide: position.TargetSide,
+                ObservedTeam: position.ObservedTeam,
+                PolymarketConditionId: position.PolymarketConditionId,
+                TargetTokenId: position.TargetTokenId,
+                CommenceTime: position.CommenceTime,
+                OpenedAt: position.CreatedAt,
+                ClosedAt: utcNow,
+                Stake: position.Stake,
+                EntryPrice: position.EntryPrice,
+                PolymarketEntryPrice: position.PolymarketEntryPrice,
+                ClosePrice: closePrice.HasValue ? (double)closePrice.Value : null,
+                PnL: pnl,
+                ExitReason: exitReason,
+                TargetProbability: position.TargetProbability,
+                LastKnownMidPrice: position.LastKnownMidPrice,
+                LastPriceCheckedAt: position.LastPriceCheckedAt,
+                TimeToKickoffAtEntrySeconds: (position.CommenceTime - position.CreatedAt).TotalSeconds,
+                TimeToKickoffAtCloseSeconds: (position.CommenceTime - utcNow).TotalSeconds,
+                HadMissingMidpointAtClose: hadMissingMidpointAtClose,
+                UsedLastKnownMidPriceFallback: usedLastKnownMidPriceFallback
+            );
+
+            await analyticsRepo.InsertClosureAnalyticsAsync(analytics, ct);
 
             _logger.LogInformation(
                 "Position closed. positionId={PositionId} team={Team} " +
@@ -424,5 +456,3 @@ namespace Arb.Core.Executor.Worker.HostedServices
         }
     }
 }
-
-
