@@ -21,14 +21,47 @@ namespace Arb.Core.Infrastructure.Postgres
             await using var conn = _factory.Create();
             await conn.OpenAsync(ct);
 
-            const string sql =  """
-                                INSERT INTO order_intents
-                                (id, correlation_id, strategy, venue, sport_key, event_key, home_team, away_team, commence_time, market_type, selection_key,
-                                 price_limit, stake, side, created_at, raw_payload)
-                                VALUES
-                                (@Id, @CorrelationId, @Strategy, @Venue, @SportKey, @EventKey, @HomeTeam, @AwayTeam, @CommenceTime, @MarketType, @SelectionKey,
-                                 @PriceLimit, @Stake, @Side, @CreatedAt, @RawPayload::jsonb);
-                                """;
+            const string sql = """
+                INSERT INTO order_intents
+                (
+                    id,
+                    correlation_id,
+                    strategy,
+                    venue,
+                    sport_key,
+                    event_key,
+                    home_team,
+                    away_team,
+                    commence_time,
+                    market_type,
+                    selection_key,
+                    price_limit,
+                    stake,
+                    side,
+                    created_at,
+                    raw_payload
+                )
+                VALUES
+                (
+                    @Id,
+                    @CorrelationId,
+                    @Strategy,
+                    @Venue,
+                    @SportKey,
+                    @EventKey,
+                    @HomeTeam,
+                    @AwayTeam,
+                    @CommenceTime,
+                    @MarketType,
+                    @SelectionKey,
+                    @PriceLimit,
+                    @Stake,
+                    @Side,
+                    @CreatedAt,
+                    @RawPayload::jsonb
+                )
+                ON CONFLICT (id) DO NOTHING;
+                """;
 
             var payload = JsonSerializer.Serialize(intent);
 
@@ -42,13 +75,13 @@ namespace Arb.Core.Infrastructure.Postgres
                 intent.EventKey,
                 intent.HomeTeam,
                 intent.AwayTeam,
-                CommenceTime = intent.CommenceTime.Date,
+                CommenceTime = intent.CommenceTime,
                 intent.MarketType,
                 intent.SelectionKey,
                 PriceLimit = intent.PriceLimit,
                 Stake = intent.Stake,
                 intent.Side,
-                CreatedAt = intent.Ts.Date,
+                CreatedAt = intent.Ts,
                 RawPayload = payload
             });
         }

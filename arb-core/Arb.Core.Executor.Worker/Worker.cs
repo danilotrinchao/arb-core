@@ -18,12 +18,6 @@ namespace Arb.Core.Executor.Worker
         private const string PolymarketGroupName = "executor-polymarket";
         private const string PolymarketConsumerName = "executor-polymarket-1";
         private const string PolymarketMarketType = "TEAM_TO_WIN_YES_NO";
-
-        // Regra mínima de edge para abrir posição
-        // Se a distância entre entrada e alvo comparável for menor que isso,
-        // a posição já nasce fraca e tende a:
-        // - convergir sem ganho relevante
-        // - ou ocupar slot até o kickoff fallback
         private const double MinHeadroomToTargetToOpen = 0.012d;
 
         private readonly ILogger<Worker> _logger;
@@ -164,6 +158,12 @@ namespace Arb.Core.Executor.Worker
                             .GetRequiredService<IPositionRepository>();
                         var reportRepo = scope.ServiceProvider
                             .GetRequiredService<IExecutionReportRepository>();
+                        var orderIntentRepo = scope.ServiceProvider
+                            .GetRequiredService<IOrderIntentRepository>();
+                        var rejectionRepo = scope.ServiceProvider
+                            .GetRequiredService<IOrderIntentRejectionRepository>();
+
+                        await PersistOrderIntentAsync(intent, orderIntentRepo, stoppingToken);
 
                         var portfolio = await portfolioRepo.GetAsync(stoppingToken);
                         if (portfolio is null)
@@ -180,6 +180,17 @@ namespace Arb.Core.Executor.Worker
 
                         if (openPolymarketPositions >= _risk.MaxPolymarketOpenPositions)
                         {
+                            await PersistRejectionAsync(
+                                rejectionRepo,
+                                intent,
+                                reason: "MAX_POLYMARKET_OPEN_POSITIONS",
+                                entryMid: null,
+                                comparableTarget: null,
+                                headroomToTarget: null,
+                                timeToKickoffSeconds: null,
+                                payload,
+                                stoppingToken);
+
                             _logger.LogInformation(
                                 "Polymarket intent rejected. Reason=MAX_POLYMARKET_OPEN_POSITIONS intentId={IntentId} open={Open} max={Max}",
                                 intent.IntentId,
@@ -198,6 +209,17 @@ namespace Arb.Core.Executor.Worker
 
                         if (effectiveStake > portfolio!.CurrentBalance)
                         {
+                            await PersistRejectionAsync(
+                                rejectionRepo,
+                                intent,
+                                reason: "INSUFFICIENT_BALANCE",
+                                entryMid: null,
+                                comparableTarget: null,
+                                headroomToTarget: null,
+                                timeToKickoffSeconds: null,
+                                payload,
+                                stoppingToken);
+
                             _logger.LogInformation(
                                 "Polymarket intent rejected. Reason=INSUFFICIENT_BALANCE intentId={IntentId} stake={Stake} balance={Balance}",
                                 intent.IntentId,
@@ -221,6 +243,17 @@ namespace Arb.Core.Executor.Worker
 
                         if (timeToKickoff <= kickoffWindow)
                         {
+                            await PersistRejectionAsync(
+                                rejectionRepo,
+                                intent,
+                                reason: "INSIDE_KICKOFF_WINDOW",
+                                entryMid: null,
+                                comparableTarget: null,
+                                headroomToTarget: null,
+                                timeToKickoffSeconds: timeToKickoff.TotalSeconds,
+                                rawPayload: payload,
+                                ct: stoppingToken);
+
                             _logger.LogInformation(
                                 "Polymarket intent rejected. Reason=INSIDE_KICKOFF_WINDOW intentId={IntentId} team={Team} conditionId={ConditionId} commenceTime={CommenceTime} matchedGammaStartTime={MatchedGammaStartTime} timeToKickoff={TimeToKickoff} kickoffWindowMinutes={KickoffWindowMinutes}",
                                 intent.IntentId,
@@ -266,12 +299,21 @@ namespace Arb.Core.Executor.Worker
 
                         var comparableTargetProbability = GetComparableTargetProbability(intent);
 
-                        // Guard 1:
-                        // rejeita quando a entrada já nasce no alvo ou acima do alvo
                         if (polymarketEntryPrice.HasValue &&
                             comparableTargetProbability.HasValue &&
                             polymarketEntryPrice.Value >= comparableTargetProbability.Value)
                         {
+                            await PersistRejectionAsync(
+                                rejectionRepo,
+                                intent,
+                                reason: "ENTRY_ALREADY_AT_OR_ABOVE_TARGET",
+                                entryMid: polymarketEntryPrice,
+                                comparableTarget: comparableTargetProbability,
+                                headroomToTarget: comparableTargetProbability - polymarketEntryPrice,
+                                timeToKickoffSeconds: timeToKickoff.TotalSeconds,
+                                rawPayload: payload,
+                                ct: stoppingToken);
+
                             _logger.LogInformation(
                                 "Polymarket intent rejected. Reason=ENTRY_ALREADY_AT_OR_ABOVE_TARGET intentId={IntentId} team={Team} conditionId={ConditionId} targetSide={TargetSide} entryMid={EntryMid:F4} comparableTarget={ComparableTarget:F4} rawTarget={RawTarget:F4}",
                                 intent.IntentId,
@@ -290,11 +332,6 @@ namespace Arb.Core.Executor.Worker
                             continue;
                         }
 
-                        // Guard 2:
-                        // rejeita quando a folga até o alvo comparável é menor que o mínimo exigido
-                        // Isso evita entradas "quase no alvo", que tendem a:
-                        // - gerar CONVERGED com ganho irrelevante
-                        // - ou morrer no kickoff fallback
                         if (polymarketEntryPrice.HasValue &&
                             comparableTargetProbability.HasValue)
                         {
@@ -303,6 +340,17 @@ namespace Arb.Core.Executor.Worker
 
                             if (headroomToTarget < MinHeadroomToTargetToOpen)
                             {
+                                await PersistRejectionAsync(
+                                    rejectionRepo,
+                                    intent,
+                                    reason: "ENTRY_HEADROOM_BELOW_MINIMUM",
+                                    entryMid: polymarketEntryPrice,
+                                    comparableTarget: comparableTargetProbability,
+                                    headroomToTarget: headroomToTarget,
+                                    timeToKickoffSeconds: timeToKickoff.TotalSeconds,
+                                    rawPayload: payload,
+                                    ct: stoppingToken);
+
                                 _logger.LogInformation(
                                     "Polymarket intent rejected. Reason=ENTRY_HEADROOM_BELOW_MINIMUM intentId={IntentId} team={Team} conditionId={ConditionId} targetSide={TargetSide} entryMid={EntryMid:F4} comparableTarget={ComparableTarget:F4} headroom={Headroom:F4} minHeadroom={MinHeadroom:F4} rawTarget={RawTarget:F4}",
                                     intent.IntentId,
@@ -425,6 +473,62 @@ namespace Arb.Core.Executor.Worker
                     }
                 }
             }
+        }
+
+        private async Task PersistOrderIntentAsync(
+            PolymarketOrderIntentV1 intent,
+            IOrderIntentRepository repo,
+            CancellationToken ct)
+        {
+            var orderIntent = new OrderIntentV1(
+                SchemaVersion: "1.0.0",
+                IntentId: intent.IntentId,
+                CorrelationId: $"{intent.ObservedEventId}|{intent.SelectionKey}|{intent.TargetSide}",
+                Ts: DateTime.UtcNow,
+                Strategy: "polymarket_observed_signal",
+                Venue: "POLYMARKET",
+                SportKey: intent.SportKey ?? "unknown",
+                EventKey: intent.ObservedEventId,
+                HomeTeam: intent.ObservedTeam ?? string.Empty,
+                AwayTeam: string.Empty,
+                CommenceTime: ResolveCommenceTime(intent, DateTime.UtcNow),
+                MarketType: PolymarketMarketType,
+                SelectionKey: intent.SelectionKey,
+                PriceLimit: (double)intent.CurrentReferencePrice,
+                Stake: _risk.PolymarketFixedStakeUsd,
+                Side: intent.TargetSide ?? string.Empty);
+
+            await repo.InsertAsync(orderIntent, ct);
+        }
+
+        private async Task PersistRejectionAsync(
+            IOrderIntentRejectionRepository repo,
+            PolymarketOrderIntentV1 intent,
+            string reason,
+            double? entryMid,
+            double? comparableTarget,
+            double? headroomToTarget,
+            double? timeToKickoffSeconds,
+            string rawPayload,
+            CancellationToken ct)
+        {
+            var rejection = new OrderIntentRejection(
+                Id: Guid.NewGuid(),
+                IntentId: intent.IntentId,
+                SportKey: intent.SportKey ?? "unknown",
+                ObservedTeam: intent.ObservedTeam ?? string.Empty,
+                TargetSide: intent.TargetSide,
+                PolymarketConditionId: intent.PolymarketConditionId,
+                TargetTokenId: intent.TargetTokenId,
+                Reason: reason,
+                EntryMid: entryMid,
+                ComparableTarget: comparableTarget,
+                HeadroomToTarget: headroomToTarget,
+                TimeToKickoffSeconds: timeToKickoffSeconds,
+                CreatedAt: DateTime.UtcNow,
+                RawPayload: rawPayload);
+
+            await repo.InsertAsync(rejection, ct);
         }
 
         private async Task PersistAndPublishReportAsync(

@@ -36,6 +36,23 @@ namespace Arb.Core.Infrastructure.Postgres
                     raw_payload     JSONB NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS order_intent_rejections (
+                    id                      UUID PRIMARY KEY,
+                    intent_id               TEXT NOT NULL,
+                    sport_key               VARCHAR(100) NOT NULL,
+                    observed_team           VARCHAR(200) NOT NULL,
+                    target_side             VARCHAR(20) NULL,
+                    polymarket_condition_id VARCHAR(200) NULL,
+                    target_token_id         VARCHAR(200) NULL,
+                    reason                  VARCHAR(100) NOT NULL,
+                    entry_mid               DOUBLE PRECISION NULL,
+                    comparable_target       DOUBLE PRECISION NULL,
+                    headroom_to_target      DOUBLE PRECISION NULL,
+                    time_to_kickoff_seconds DOUBLE PRECISION NULL,
+                    created_at              TIMESTAMPTZ NOT NULL,
+                    raw_payload             JSONB NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS execution_reports (
                     id              UUID PRIMARY KEY,
                     intent_id       UUID NOT NULL,
@@ -114,7 +131,6 @@ namespace Arb.Core.Infrastructure.Postgres
                     created_at                              TIMESTAMPTZ NOT NULL
                 );
 
-                -- Adições incrementais para ambientes existentes
                 ALTER TABLE positions ADD COLUMN IF NOT EXISTS observed_team VARCHAR(200) NULL;
                 ALTER TABLE positions ADD COLUMN IF NOT EXISTS polymarket_condition_id VARCHAR(200) NULL;
                 ALTER TABLE positions ADD COLUMN IF NOT EXISTS polymarket_entry_price DOUBLE PRECISION NULL;
@@ -140,6 +156,18 @@ namespace Arb.Core.Infrastructure.Postgres
 
                 CREATE INDEX IF NOT EXISTS ix_order_intents_created_at
                     ON order_intents(created_at);
+
+                CREATE INDEX IF NOT EXISTS ix_order_intents_sport_key
+                    ON order_intents(sport_key);
+
+                CREATE INDEX IF NOT EXISTS ix_order_intent_rejections_created_at
+                    ON order_intent_rejections(created_at);
+
+                CREATE INDEX IF NOT EXISTS ix_order_intent_rejections_reason
+                    ON order_intent_rejections(reason);
+
+                CREATE INDEX IF NOT EXISTS ix_order_intent_rejections_sport_key
+                    ON order_intent_rejections(sport_key);
 
                 CREATE INDEX IF NOT EXISTS ix_execution_reports_intent_id
                     ON execution_reports(intent_id);

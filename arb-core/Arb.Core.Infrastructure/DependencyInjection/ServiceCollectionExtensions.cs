@@ -64,6 +64,7 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             services.AddSingleton<DbInitializer>();
 
             services.AddScoped<IOrderIntentRepository, OrderIntentRepository>();
+            services.AddScoped<IOrderIntentRejectionRepository, OrderIntentRejectionRepository>();
             services.AddScoped<IExecutionReportRepository, ExecutionReportRepository>();
             services.AddScoped<IPortfolioRepository, PortfolioRepository>();
             services.AddScoped<IPositionRepository, PositionRepository>();
