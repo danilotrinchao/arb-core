@@ -188,8 +188,8 @@ namespace Arb.Core.Executor.Worker
                                 comparableTarget: null,
                                 headroomToTarget: null,
                                 timeToKickoffSeconds: null,
-                                payload,
-                                stoppingToken);
+                                rawPayload: payload,
+                                ct: stoppingToken);
 
                             _logger.LogInformation(
                                 "Polymarket intent rejected. Reason=MAX_POLYMARKET_OPEN_POSITIONS intentId={IntentId} open={Open} max={Max}",
@@ -217,8 +217,8 @@ namespace Arb.Core.Executor.Worker
                                 comparableTarget: null,
                                 headroomToTarget: null,
                                 timeToKickoffSeconds: null,
-                                payload,
-                                stoppingToken);
+                                rawPayload: payload,
+                                ct: stoppingToken);
 
                             _logger.LogInformation(
                                 "Polymarket intent rejected. Reason=INSUFFICIENT_BALANCE intentId={IntentId} stake={Stake} balance={Balance}",
@@ -289,18 +289,40 @@ namespace Arb.Core.Executor.Worker
                                     intent.TargetTokenId,
                                     polymarketEntryPrice);
                             }
-                            else
-                            {
-                                _logger.LogWarning(
-                                    "Could not fetch Polymarket entry price for TokenId={TokenId}. Position will be opened with null entry price.",
-                                    intent.TargetTokenId);
-                            }
+                        }
+
+                        // Novo guard: não abrir posição sem entry price confiável
+                        if (!polymarketEntryPrice.HasValue)
+                        {
+                            await PersistRejectionAsync(
+                                rejectionRepo,
+                                intent,
+                                reason: "ENTRY_PRICE_UNAVAILABLE",
+                                entryMid: null,
+                                comparableTarget: null,
+                                headroomToTarget: null,
+                                timeToKickoffSeconds: timeToKickoff.TotalSeconds,
+                                rawPayload: payload,
+                                ct: stoppingToken);
+
+                            _logger.LogWarning(
+                                "Polymarket intent rejected. Reason=ENTRY_PRICE_UNAVAILABLE intentId={IntentId} team={Team} conditionId={ConditionId} targetTokenId={TargetTokenId}",
+                                intent.IntentId,
+                                intent.ObservedTeam,
+                                intent.PolymarketConditionId,
+                                intent.TargetTokenId);
+
+                            await _consumer.AckAsync(
+                                _streams.PolymarketOrderIntents,
+                                PolymarketGroupName,
+                                msg.Id,
+                                stoppingToken);
+                            continue;
                         }
 
                         var comparableTargetProbability = GetComparableTargetProbability(intent);
 
-                        if (polymarketEntryPrice.HasValue &&
-                            comparableTargetProbability.HasValue &&
+                        if (comparableTargetProbability.HasValue &&
                             polymarketEntryPrice.Value >= comparableTargetProbability.Value)
                         {
                             await PersistRejectionAsync(
@@ -332,8 +354,7 @@ namespace Arb.Core.Executor.Worker
                             continue;
                         }
 
-                        if (polymarketEntryPrice.HasValue &&
-                            comparableTargetProbability.HasValue)
+                        if (comparableTargetProbability.HasValue)
                         {
                             var headroomToTarget =
                                 comparableTargetProbability.Value - polymarketEntryPrice.Value;
@@ -388,7 +409,7 @@ namespace Arb.Core.Executor.Worker
                                 TargetSide: intent.TargetSide,
                                 ObservedTeam: intent.ObservedTeam,
                                 PolymarketConditionId: intent.PolymarketConditionId,
-                                PolymarketEntryPrice: polymarketEntryPrice,
+                                PolymarketEntryPrice: polymarketEntryPrice.Value,
                                 TargetProbability: (double)intent.TargetProbability,
                                 TargetTokenId: intent.TargetTokenId),
                             stoppingToken);
@@ -421,7 +442,7 @@ namespace Arb.Core.Executor.Worker
                             CorrelationId: $"{intent.ObservedEventId}|{intent.SelectionKey}|{intent.TargetSide}",
                             Ts: DateTime.UtcNow,
                             Status: "OPENED",
-                            FilledPrice: polymarketEntryPrice ?? (double)intent.CurrentReferencePrice,
+                            FilledPrice: polymarketEntryPrice.Value,
                             FilledUsd: effectiveStake,
                             TxHash: null,
                             Error: null);
@@ -440,9 +461,7 @@ namespace Arb.Core.Executor.Worker
                             intent.TargetSide,
                             intent.MovementDirection,
                             intent.CurrentReferencePrice,
-                            polymarketEntryPrice.HasValue
-                                ? polymarketEntryPrice.Value.ToString("F4", CultureInfo.InvariantCulture)
-                                : "N/A",
+                            polymarketEntryPrice.Value.ToString("F4", CultureInfo.InvariantCulture),
                             intent.TargetProbability,
                             comparableTargetProbability.HasValue
                                 ? comparableTargetProbability.Value.ToString("F4", CultureInfo.InvariantCulture)
@@ -480,18 +499,20 @@ namespace Arb.Core.Executor.Worker
             IOrderIntentRepository repo,
             CancellationToken ct)
         {
+            var nowUtc = DateTime.UtcNow;
+
             var orderIntent = new OrderIntentV1(
                 SchemaVersion: "1.0.0",
                 IntentId: intent.IntentId,
                 CorrelationId: $"{intent.ObservedEventId}|{intent.SelectionKey}|{intent.TargetSide}",
-                Ts: DateTime.UtcNow,
+                Ts: nowUtc,
                 Strategy: "polymarket_observed_signal",
                 Venue: "POLYMARKET",
                 SportKey: intent.SportKey ?? "unknown",
                 EventKey: intent.ObservedEventId,
                 HomeTeam: intent.ObservedTeam ?? string.Empty,
                 AwayTeam: string.Empty,
-                CommenceTime: ResolveCommenceTime(intent, DateTime.UtcNow),
+                CommenceTime: ResolveCommenceTime(intent, nowUtc),
                 MarketType: PolymarketMarketType,
                 SelectionKey: intent.SelectionKey,
                 PriceLimit: (double)intent.CurrentReferencePrice,
