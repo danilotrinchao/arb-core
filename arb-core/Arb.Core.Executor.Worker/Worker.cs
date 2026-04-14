@@ -24,7 +24,7 @@ namespace Arb.Core.Executor.Worker
         // a posição já nasce fraca e tende a:
         // - convergir sem ganho relevante
         // - ou ocupar slot até o kickoff fallback
-        private const double MinHeadroomToTargetToOpen = 0.02d;
+        private const double MinHeadroomToTargetToOpen = 0.015d;
 
         private readonly ILogger<Worker> _logger;
         private readonly IStreamConsumer _consumer;
