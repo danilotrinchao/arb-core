@@ -393,6 +393,47 @@ namespace Arb.Core.Executor.Worker
                             }
                         }
 
+                        var hasDuplicateOpenPosition = await positionRepo.ExistsOpenDuplicateAsync(
+                                                                                                    intent.SportKey ?? "soccer",
+                                                                                                    intent.ObservedEventId,
+                                                                                                    intent.PolymarketConditionId,
+                                                                                                    intent.TargetTokenId,
+                                                                                                    intent.TargetSide,
+                                                                                                    stoppingToken);
+
+                        if (hasDuplicateOpenPosition)
+                        {
+                            await PersistRejectionAsync(
+                                rejectionRepo,
+                                intent,
+                                reason: "DUPLICATE_OPEN_POSITION",
+                                entryMid: polymarketEntryPrice,
+                                comparableTarget: comparableTargetProbability,
+                                headroomToTarget: comparableTargetProbability.HasValue && polymarketEntryPrice.HasValue
+                                    ? comparableTargetProbability.Value - polymarketEntryPrice.Value
+                                    : null,
+                                timeToKickoffSeconds: timeToKickoff.TotalSeconds,
+                                rawPayload: payload,
+                                ct: stoppingToken);
+
+                            _logger.LogInformation(
+                                "Polymarket intent rejected. Reason=DUPLICATE_OPEN_POSITION intentId={IntentId} sport={SportKey} eventKey={EventKey} conditionId={ConditionId} tokenId={TokenId} side={TargetSide}",
+                                intent.IntentId,
+                                intent.SportKey,
+                                intent.ObservedEventId,
+                                intent.PolymarketConditionId,
+                                intent.TargetTokenId,
+                                intent.TargetSide);
+
+                            await _consumer.AckAsync(
+                                _streams.PolymarketOrderIntents,
+                                PolymarketGroupName,
+                                msg.Id,
+                                stoppingToken);
+
+                            continue;
+                        }
+
                         var positionId = await positionRepo.CreateOpenAsync(
                             new PositionOpen(
                                 IntentId: intent.IntentId,

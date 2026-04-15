@@ -4,6 +4,14 @@
     {
         Task<Guid> CreateOpenAsync(PositionOpen position, CancellationToken ct);
 
+        Task<bool> ExistsOpenDuplicateAsync(
+            string sportKey,
+            string eventKey,
+            string? polymarketConditionId,
+            string? targetTokenId,
+            string? targetSide,
+            CancellationToken ct);
+
         Task CloseAsync(
             Guid positionId,
             double pnl,
@@ -58,8 +66,6 @@
     {
         public Guid Id { get; set; }
 
-        // Intent real persistido na tabela positions.intent_id
-        // Necessário para analytics e execution report corretos
         public Guid IntentId { get; set; }
 
         public string SportKey { get; set; } = string.Empty;

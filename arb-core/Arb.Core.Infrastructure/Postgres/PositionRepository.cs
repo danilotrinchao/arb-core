@@ -62,6 +62,41 @@ namespace Arb.Core.Infrastructure.Postgres
             return affected == 0 ? Guid.Empty : id;
         }
 
+        public async Task<bool> ExistsOpenDuplicateAsync(
+            string sportKey,
+            string eventKey,
+            string? polymarketConditionId,
+            string? targetTokenId,
+            string? targetSide,
+            CancellationToken ct)
+        {
+            await using var conn = _factory.Create();
+            await conn.OpenAsync(ct);
+
+            const string sql = """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM positions
+                    WHERE status = 'OPEN'
+                      AND target_side IS NOT NULL
+                      AND sport_key = @SportKey
+                      AND event_key = @EventKey
+                      AND COALESCE(polymarket_condition_id, '') = COALESCE(@PolymarketConditionId, '')
+                      AND COALESCE(target_token_id, '') = COALESCE(@TargetTokenId, '')
+                      AND COALESCE(target_side, '') = COALESCE(@TargetSide, '')
+                );
+                """;
+
+            return await conn.ExecuteScalarAsync<bool>(sql, new
+            {
+                SportKey = sportKey,
+                EventKey = eventKey,
+                PolymarketConditionId = polymarketConditionId,
+                TargetTokenId = targetTokenId,
+                TargetSide = targetSide
+            });
+        }
+
         public async Task CloseAsync(
             Guid positionId,
             double pnl,

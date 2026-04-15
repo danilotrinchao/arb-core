@@ -144,6 +144,19 @@ namespace Arb.Core.Infrastructure.Postgres
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_positions_intent_id
                     ON positions(intent_id);
 
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_positions_open_market_slot
+                    ON positions (
+                        sport_key,
+                        event_key,
+                        polymarket_condition_id,
+                        target_token_id,
+                        target_side
+                    )
+                    WHERE status = 'OPEN'
+                      AND target_side IS NOT NULL
+                      AND polymarket_condition_id IS NOT NULL
+                      AND target_token_id IS NOT NULL;
+
                 CREATE INDEX IF NOT EXISTS ix_positions_status
                     ON positions(status);
 
