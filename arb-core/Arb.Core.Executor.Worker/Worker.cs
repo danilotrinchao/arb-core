@@ -152,9 +152,9 @@ namespace Arb.Core.Executor.Worker
 
                         var utcNow = DateTime.UtcNow;
                         var intentGeneratedAt = ParseIntentGeneratedAt(intent.GeneratedAt);
-                        var intentAgeSeconds = intentGeneratedAt.HasValue
-                            ? (utcNow - intentGeneratedAt.Value).TotalSeconds
-                            : null;
+                        double? intentAgeSeconds = intentGeneratedAt.HasValue
+                        ? (utcNow - intentGeneratedAt.Value).TotalSeconds
+                        : null;
 
                         using var scope = _scopeFactory.CreateScope();
 
