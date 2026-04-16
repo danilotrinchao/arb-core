@@ -150,6 +150,12 @@ namespace Arb.Core.Executor.Worker
                             continue;
                         }
 
+                        var utcNow = DateTime.UtcNow;
+                        var intentGeneratedAt = ParseIntentGeneratedAt(intent.GeneratedAt);
+                        var intentAgeSeconds = intentGeneratedAt.HasValue
+                            ? (utcNow - intentGeneratedAt.Value).TotalSeconds
+                            : null;
+
                         using var scope = _scopeFactory.CreateScope();
 
                         var portfolioRepo = scope.ServiceProvider
@@ -189,14 +195,17 @@ namespace Arb.Core.Executor.Worker
                                 rawTargetProbability: (double)intent.TargetProbability,
                                 headroomToTarget: null,
                                 timeToKickoffSeconds: null,
+                                intentGeneratedAt: intentGeneratedAt,
+                                intentAgeSeconds: intentAgeSeconds,
                                 rawPayload: payload,
                                 ct: stoppingToken);
 
                             _logger.LogInformation(
-                                "Polymarket intent rejected. Reason=MAX_POLYMARKET_OPEN_POSITIONS intentId={IntentId} open={Open} max={Max}",
+                                "Polymarket intent rejected. Reason=MAX_POLYMARKET_OPEN_POSITIONS intentId={IntentId} open={Open} max={Max} intentAgeSeconds={IntentAgeSeconds}",
                                 intent.IntentId,
                                 openPolymarketPositions,
-                                _risk.MaxPolymarketOpenPositions);
+                                _risk.MaxPolymarketOpenPositions,
+                                intentAgeSeconds);
 
                             await _consumer.AckAsync(
                                 _streams.PolymarketOrderIntents,
@@ -219,14 +228,17 @@ namespace Arb.Core.Executor.Worker
                                 rawTargetProbability: (double)intent.TargetProbability,
                                 headroomToTarget: null,
                                 timeToKickoffSeconds: null,
+                                intentGeneratedAt: intentGeneratedAt,
+                                intentAgeSeconds: intentAgeSeconds,
                                 rawPayload: payload,
                                 ct: stoppingToken);
 
                             _logger.LogInformation(
-                                "Polymarket intent rejected. Reason=INSUFFICIENT_BALANCE intentId={IntentId} stake={Stake} balance={Balance}",
+                                "Polymarket intent rejected. Reason=INSUFFICIENT_BALANCE intentId={IntentId} stake={Stake} balance={Balance} intentAgeSeconds={IntentAgeSeconds}",
                                 intent.IntentId,
                                 effectiveStake,
-                                portfolio.CurrentBalance);
+                                portfolio.CurrentBalance,
+                                intentAgeSeconds);
 
                             await _consumer.AckAsync(
                                 _streams.PolymarketOrderIntents,
@@ -236,7 +248,6 @@ namespace Arb.Core.Executor.Worker
                             continue;
                         }
 
-                        var utcNow = DateTime.UtcNow;
                         var commenceTime = ResolveCommenceTime(intent, utcNow);
 
                         var timeToKickoff = commenceTime - utcNow;
@@ -254,18 +265,19 @@ namespace Arb.Core.Executor.Worker
                                 rawTargetProbability: (double)intent.TargetProbability,
                                 headroomToTarget: null,
                                 timeToKickoffSeconds: timeToKickoff.TotalSeconds,
+                                intentGeneratedAt: intentGeneratedAt,
+                                intentAgeSeconds: intentAgeSeconds,
                                 rawPayload: payload,
                                 ct: stoppingToken);
 
                             _logger.LogInformation(
-                                "Polymarket intent rejected. Reason=INSIDE_KICKOFF_WINDOW intentId={IntentId} team={Team} conditionId={ConditionId} commenceTime={CommenceTime} matchedGammaStartTime={MatchedGammaStartTime} timeToKickoff={TimeToKickoff} kickoffWindowMinutes={KickoffWindowMinutes}",
+                                "Polymarket intent rejected. Reason=INSIDE_KICKOFF_WINDOW intentId={IntentId} team={Team} conditionId={ConditionId} timeToKickoff={TimeToKickoff} kickoffWindowMinutes={KickoffWindowMinutes} intentAgeSeconds={IntentAgeSeconds}",
                                 intent.IntentId,
                                 intent.ObservedTeam,
                                 intent.PolymarketConditionId,
-                                intent.CommenceTime ?? "null",
-                                intent.MatchedGammaStartTime ?? "null",
                                 timeToKickoff.ToString(),
-                                _settlement.MinutesBeforeKickoffToClose);
+                                _settlement.MinutesBeforeKickoffToClose,
+                                intentAgeSeconds);
 
                             await _consumer.AckAsync(
                                 _streams.PolymarketOrderIntents,
@@ -288,9 +300,10 @@ namespace Arb.Core.Executor.Worker
                                 polymarketEntryPrice = (double)midpoint.Value;
 
                                 _logger.LogInformation(
-                                    "Polymarket entry price fetched. TokenId={TokenId} MidPrice={MidPrice}",
+                                    "Polymarket entry price fetched. TokenId={TokenId} MidPrice={MidPrice} intentAgeSeconds={IntentAgeSeconds}",
                                     intent.TargetTokenId,
-                                    polymarketEntryPrice);
+                                    polymarketEntryPrice,
+                                    intentAgeSeconds);
                             }
                         }
 
@@ -305,15 +318,18 @@ namespace Arb.Core.Executor.Worker
                                 rawTargetProbability: (double)intent.TargetProbability,
                                 headroomToTarget: null,
                                 timeToKickoffSeconds: timeToKickoff.TotalSeconds,
+                                intentGeneratedAt: intentGeneratedAt,
+                                intentAgeSeconds: intentAgeSeconds,
                                 rawPayload: payload,
                                 ct: stoppingToken);
 
                             _logger.LogWarning(
-                                "Polymarket intent rejected. Reason=ENTRY_PRICE_UNAVAILABLE intentId={IntentId} team={Team} conditionId={ConditionId} targetTokenId={TargetTokenId}",
+                                "Polymarket intent rejected. Reason=ENTRY_PRICE_UNAVAILABLE intentId={IntentId} team={Team} conditionId={ConditionId} targetTokenId={TargetTokenId} intentAgeSeconds={IntentAgeSeconds}",
                                 intent.IntentId,
                                 intent.ObservedTeam,
                                 intent.PolymarketConditionId,
-                                intent.TargetTokenId);
+                                intent.TargetTokenId,
+                                intentAgeSeconds);
 
                             await _consumer.AckAsync(
                                 _streams.PolymarketOrderIntents,
@@ -337,11 +353,13 @@ namespace Arb.Core.Executor.Worker
                                 rawTargetProbability: (double)intent.TargetProbability,
                                 headroomToTarget: comparableTargetProbability - polymarketEntryPrice,
                                 timeToKickoffSeconds: timeToKickoff.TotalSeconds,
+                                intentGeneratedAt: intentGeneratedAt,
+                                intentAgeSeconds: intentAgeSeconds,
                                 rawPayload: payload,
                                 ct: stoppingToken);
 
                             _logger.LogInformation(
-                                "Polymarket intent rejected. Reason=ENTRY_ALREADY_AT_OR_ABOVE_TARGET intentId={IntentId} team={Team} conditionId={ConditionId} targetSide={TargetSide} entryMid={EntryMid:F4} comparableTarget={ComparableTarget:F4} rawTarget={RawTarget:F4} delta={Delta:F4}",
+                                "Polymarket intent rejected. Reason=ENTRY_ALREADY_AT_OR_ABOVE_TARGET intentId={IntentId} team={Team} conditionId={ConditionId} targetSide={TargetSide} entryMid={EntryMid:F4} comparableTarget={ComparableTarget:F4} rawTarget={RawTarget:F4} delta={Delta:F4} intentAgeSeconds={IntentAgeSeconds}",
                                 intent.IntentId,
                                 intent.ObservedTeam,
                                 intent.PolymarketConditionId,
@@ -349,7 +367,8 @@ namespace Arb.Core.Executor.Worker
                                 polymarketEntryPrice.Value,
                                 comparableTargetProbability.Value,
                                 intent.TargetProbability,
-                                polymarketEntryPrice.Value - comparableTargetProbability.Value);
+                                polymarketEntryPrice.Value - comparableTargetProbability.Value,
+                                intentAgeSeconds);
 
                             await _consumer.AckAsync(
                                 _streams.PolymarketOrderIntents,
@@ -375,11 +394,13 @@ namespace Arb.Core.Executor.Worker
                                     rawTargetProbability: (double)intent.TargetProbability,
                                     headroomToTarget: headroomToTarget,
                                     timeToKickoffSeconds: timeToKickoff.TotalSeconds,
+                                    intentGeneratedAt: intentGeneratedAt,
+                                    intentAgeSeconds: intentAgeSeconds,
                                     rawPayload: payload,
                                     ct: stoppingToken);
 
                                 _logger.LogInformation(
-                                    "Polymarket intent rejected. Reason=ENTRY_HEADROOM_BELOW_MINIMUM intentId={IntentId} team={Team} conditionId={ConditionId} targetSide={TargetSide} entryMid={EntryMid:F4} comparableTarget={ComparableTarget:F4} rawTarget={RawTarget:F4} headroom={Headroom:F4} minHeadroom={MinHeadroom:F4}",
+                                    "Polymarket intent rejected. Reason=ENTRY_HEADROOM_BELOW_MINIMUM intentId={IntentId} team={Team} conditionId={ConditionId} targetSide={TargetSide} entryMid={EntryMid:F4} comparableTarget={ComparableTarget:F4} rawTarget={RawTarget:F4} headroom={Headroom:F4} minHeadroom={MinHeadroom:F4} intentAgeSeconds={IntentAgeSeconds}",
                                     intent.IntentId,
                                     intent.ObservedTeam,
                                     intent.PolymarketConditionId,
@@ -388,7 +409,8 @@ namespace Arb.Core.Executor.Worker
                                     comparableTargetProbability.Value,
                                     intent.TargetProbability,
                                     headroomToTarget,
-                                    MinHeadroomToTargetToOpen);
+                                    MinHeadroomToTargetToOpen,
+                                    intentAgeSeconds);
 
                                 await _consumer.AckAsync(
                                     _streams.PolymarketOrderIntents,
@@ -420,17 +442,20 @@ namespace Arb.Core.Executor.Worker
                                     ? comparableTargetProbability.Value - polymarketEntryPrice.Value
                                     : null,
                                 timeToKickoffSeconds: timeToKickoff.TotalSeconds,
+                                intentGeneratedAt: intentGeneratedAt,
+                                intentAgeSeconds: intentAgeSeconds,
                                 rawPayload: payload,
                                 ct: stoppingToken);
 
                             _logger.LogInformation(
-                                "Polymarket intent rejected. Reason=DUPLICATE_OPEN_POSITION intentId={IntentId} sport={SportKey} eventKey={EventKey} conditionId={ConditionId} tokenId={TokenId} side={TargetSide}",
+                                "Polymarket intent rejected. Reason=DUPLICATE_OPEN_POSITION intentId={IntentId} sport={SportKey} eventKey={EventKey} conditionId={ConditionId} tokenId={TokenId} side={TargetSide} intentAgeSeconds={IntentAgeSeconds}",
                                 intent.IntentId,
                                 intent.SportKey,
                                 intent.ObservedEventId,
                                 intent.PolymarketConditionId,
                                 intent.TargetTokenId,
-                                intent.TargetSide);
+                                intent.TargetSide,
+                                intentAgeSeconds);
 
                             await _consumer.AckAsync(
                                 _streams.PolymarketOrderIntents,
@@ -465,8 +490,9 @@ namespace Arb.Core.Executor.Worker
                         if (positionId == Guid.Empty)
                         {
                             _logger.LogInformation(
-                                "Duplicate Polymarket intent ignored. intentId={IntentId}",
-                                intent.IntentId);
+                                "Duplicate Polymarket intent ignored. intentId={IntentId} intentAgeSeconds={IntentAgeSeconds}",
+                                intent.IntentId,
+                                intentAgeSeconds);
 
                             await _consumer.AckAsync(
                                 _streams.PolymarketOrderIntents,
@@ -501,7 +527,7 @@ namespace Arb.Core.Executor.Worker
                             stoppingToken);
 
                         _logger.LogInformation(
-                            "POLYMARKET_SIMULATED_POSITION opened. intentId={IntentId} conditionId={ConditionId} team={Team} sel={Sel} side={Side} direction={Direction} asiaProbability={AsiaProbability:F4} polymarketMid={PolymarketMid} target={Target:F4} comparableTarget={ComparableTarget} commenceTime={CommenceTime} stake={Stake} move={Move:F4}pp sources={Sources}",
+                            "POLYMARKET_SIMULATED_POSITION opened. intentId={IntentId} conditionId={ConditionId} team={Team} sel={Sel} side={Side} direction={Direction} asiaProbability={AsiaProbability:F4} polymarketMid={PolymarketMid} target={Target:F4} comparableTarget={ComparableTarget} commenceTime={CommenceTime} stake={Stake} move={Move:F4}pp sources={Sources} intentAgeSeconds={IntentAgeSeconds}",
                             intent.IntentId,
                             intent.PolymarketConditionId,
                             intent.ObservedTeam,
@@ -517,7 +543,8 @@ namespace Arb.Core.Executor.Worker
                             commenceTime.ToString("O"),
                             effectiveStake,
                             intent.MovementPercent,
-                            intent.SupportingSources);
+                            intent.SupportingSources,
+                            intentAgeSeconds);
 
                         await _consumer.AckAsync(
                             _streams.PolymarketOrderIntents,
@@ -579,6 +606,8 @@ namespace Arb.Core.Executor.Worker
             double? rawTargetProbability,
             double? headroomToTarget,
             double? timeToKickoffSeconds,
+            DateTime? intentGeneratedAt,
+            double? intentAgeSeconds,
             string rawPayload,
             CancellationToken ct)
         {
@@ -596,6 +625,8 @@ namespace Arb.Core.Executor.Worker
                 RawTargetProbability: rawTargetProbability,
                 HeadroomToTarget: headroomToTarget,
                 TimeToKickoffSeconds: timeToKickoffSeconds,
+                IntentGeneratedAt: intentGeneratedAt,
+                IntentAgeSeconds: intentAgeSeconds,
                 CreatedAt: DateTime.UtcNow,
                 RawPayload: rawPayload);
 
@@ -657,6 +688,20 @@ namespace Arb.Core.Executor.Worker
             }
 
             return Math.Round(rawTarget, 4, MidpointRounding.AwayFromZero);
+        }
+
+        private static DateTime? ParseIntentGeneratedAt(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+
+            return DateTime.TryParse(
+                value,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var parsed)
+                ? parsed
+                : null;
         }
 
         private static DateTime? TryParseDateTime(string? value)

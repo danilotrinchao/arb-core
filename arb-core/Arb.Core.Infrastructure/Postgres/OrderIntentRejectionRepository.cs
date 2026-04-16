@@ -33,6 +33,8 @@ namespace Arb.Core.Infrastructure.Postgres
                     raw_target_probability,
                     headroom_to_target,
                     time_to_kickoff_seconds,
+                    intent_generated_at,
+                    intent_age_seconds,
                     created_at,
                     raw_payload
                 )
@@ -51,6 +53,8 @@ namespace Arb.Core.Infrastructure.Postgres
                     @RawTargetProbability,
                     @HeadroomToTarget,
                     @TimeToKickoffSeconds,
+                    @IntentGeneratedAt,
+                    @IntentAgeSeconds,
                     @CreatedAt,
                     @RawPayload::jsonb
                 );
@@ -71,6 +75,8 @@ namespace Arb.Core.Infrastructure.Postgres
                 rejection.RawTargetProbability,
                 rejection.HeadroomToTarget,
                 rejection.TimeToKickoffSeconds,
+                rejection.IntentGeneratedAt,
+                rejection.IntentAgeSeconds,
                 rejection.CreatedAt,
                 rejection.RawPayload
             });

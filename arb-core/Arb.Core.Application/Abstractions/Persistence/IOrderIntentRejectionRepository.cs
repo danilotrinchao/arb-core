@@ -19,6 +19,8 @@
         double? RawTargetProbability,
         double? HeadroomToTarget,
         double? TimeToKickoffSeconds,
+        DateTime? IntentGeneratedAt,
+        double? IntentAgeSeconds,
         DateTime CreatedAt,
         string RawPayload
     );
