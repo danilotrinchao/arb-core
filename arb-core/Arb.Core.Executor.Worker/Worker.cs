@@ -18,7 +18,7 @@ namespace Arb.Core.Executor.Worker
         private const string PolymarketGroupName = "executor-polymarket";
         private const string PolymarketConsumerName = "executor-polymarket-1";
         private const string PolymarketMarketType = "TEAM_TO_WIN_YES_NO";
-        private const double MinHeadroomToTargetToOpen = 0.012d;
+        private const double MinHeadroomToTargetToOpen = 0.010d;
 
         private readonly ILogger<Worker> _logger;
         private readonly IStreamConsumer _consumer;
@@ -150,28 +150,11 @@ namespace Arb.Core.Executor.Worker
                             continue;
                         }
 
-                        _logger.LogInformation(
-                            "Intent received. intentId={IntentId} generatedAt={GeneratedAt}",
-                            intent.IntentId,
-                            string.IsNullOrWhiteSpace(intent.GeneratedAt) ? "(null)" : intent.GeneratedAt);
-
                         var utcNow = DateTime.UtcNow;
                         var intentGeneratedAt = ParseIntentGeneratedAt(intent.GeneratedAt);
-
-                        _logger.LogInformation(
-                            "Intent parsed timestamps. intentId={IntentId} generatedAtRaw={GeneratedAtRaw} intentGeneratedAtParsed={IntentGeneratedAtParsed}",
-                            intent.IntentId,
-                            string.IsNullOrWhiteSpace(intent.GeneratedAt) ? "(null)" : intent.GeneratedAt,
-                            intentGeneratedAt?.ToString("O") ?? "(null)");
-
                         double? intentAgeSeconds = intentGeneratedAt.HasValue
-                            ? (utcNow - intentGeneratedAt.Value).TotalSeconds
-                            : null;
-
-                        _logger.LogInformation(
-                            "Intent age computed. intentId={IntentId} intentAgeSeconds={IntentAgeSeconds}",
-                            intent.IntentId,
-                            intentAgeSeconds);
+                    ? (utcNow - intentGeneratedAt.Value).TotalSeconds
+                    : null;
 
                         using var scope = _scopeFactory.CreateScope();
 
