@@ -150,11 +150,28 @@ namespace Arb.Core.Executor.Worker
                             continue;
                         }
 
+                        _logger.LogInformation(
+                            "Intent received. intentId={IntentId} generatedAt={GeneratedAt}",
+                            intent.IntentId,
+                            string.IsNullOrWhiteSpace(intent.GeneratedAt) ? "(null)" : intent.GeneratedAt);
+
                         var utcNow = DateTime.UtcNow;
                         var intentGeneratedAt = ParseIntentGeneratedAt(intent.GeneratedAt);
+
+                        _logger.LogInformation(
+                            "Intent parsed timestamps. intentId={IntentId} generatedAtRaw={GeneratedAtRaw} intentGeneratedAtParsed={IntentGeneratedAtParsed}",
+                            intent.IntentId,
+                            string.IsNullOrWhiteSpace(intent.GeneratedAt) ? "(null)" : intent.GeneratedAt,
+                            intentGeneratedAt?.ToString("O") ?? "(null)");
+
                         double? intentAgeSeconds = intentGeneratedAt.HasValue
-                        ? (utcNow - intentGeneratedAt.Value).TotalSeconds
-                        : null;
+                            ? (utcNow - intentGeneratedAt.Value).TotalSeconds
+                            : null;
+
+                        _logger.LogInformation(
+                            "Intent age computed. intentId={IntentId} intentAgeSeconds={IntentAgeSeconds}",
+                            intent.IntentId,
+                            intentAgeSeconds);
 
                         using var scope = _scopeFactory.CreateScope();
 
