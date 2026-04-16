@@ -186,6 +186,7 @@ namespace Arb.Core.Executor.Worker
                                 reason: "MAX_POLYMARKET_OPEN_POSITIONS",
                                 entryMid: null,
                                 comparableTarget: null,
+                                rawTargetProbability: (double)intent.TargetProbability,
                                 headroomToTarget: null,
                                 timeToKickoffSeconds: null,
                                 rawPayload: payload,
@@ -215,6 +216,7 @@ namespace Arb.Core.Executor.Worker
                                 reason: "INSUFFICIENT_BALANCE",
                                 entryMid: null,
                                 comparableTarget: null,
+                                rawTargetProbability: (double)intent.TargetProbability,
                                 headroomToTarget: null,
                                 timeToKickoffSeconds: null,
                                 rawPayload: payload,
@@ -249,6 +251,7 @@ namespace Arb.Core.Executor.Worker
                                 reason: "INSIDE_KICKOFF_WINDOW",
                                 entryMid: null,
                                 comparableTarget: null,
+                                rawTargetProbability: (double)intent.TargetProbability,
                                 headroomToTarget: null,
                                 timeToKickoffSeconds: timeToKickoff.TotalSeconds,
                                 rawPayload: payload,
@@ -291,7 +294,6 @@ namespace Arb.Core.Executor.Worker
                             }
                         }
 
-                        // Novo guard: não abrir posição sem entry price confiável
                         if (!polymarketEntryPrice.HasValue)
                         {
                             await PersistRejectionAsync(
@@ -300,6 +302,7 @@ namespace Arb.Core.Executor.Worker
                                 reason: "ENTRY_PRICE_UNAVAILABLE",
                                 entryMid: null,
                                 comparableTarget: null,
+                                rawTargetProbability: (double)intent.TargetProbability,
                                 headroomToTarget: null,
                                 timeToKickoffSeconds: timeToKickoff.TotalSeconds,
                                 rawPayload: payload,
@@ -331,20 +334,22 @@ namespace Arb.Core.Executor.Worker
                                 reason: "ENTRY_ALREADY_AT_OR_ABOVE_TARGET",
                                 entryMid: polymarketEntryPrice,
                                 comparableTarget: comparableTargetProbability,
+                                rawTargetProbability: (double)intent.TargetProbability,
                                 headroomToTarget: comparableTargetProbability - polymarketEntryPrice,
                                 timeToKickoffSeconds: timeToKickoff.TotalSeconds,
                                 rawPayload: payload,
                                 ct: stoppingToken);
 
                             _logger.LogInformation(
-                                "Polymarket intent rejected. Reason=ENTRY_ALREADY_AT_OR_ABOVE_TARGET intentId={IntentId} team={Team} conditionId={ConditionId} targetSide={TargetSide} entryMid={EntryMid:F4} comparableTarget={ComparableTarget:F4} rawTarget={RawTarget:F4}",
+                                "Polymarket intent rejected. Reason=ENTRY_ALREADY_AT_OR_ABOVE_TARGET intentId={IntentId} team={Team} conditionId={ConditionId} targetSide={TargetSide} entryMid={EntryMid:F4} comparableTarget={ComparableTarget:F4} rawTarget={RawTarget:F4} delta={Delta:F4}",
                                 intent.IntentId,
                                 intent.ObservedTeam,
                                 intent.PolymarketConditionId,
                                 intent.TargetSide,
                                 polymarketEntryPrice.Value,
                                 comparableTargetProbability.Value,
-                                intent.TargetProbability);
+                                intent.TargetProbability,
+                                polymarketEntryPrice.Value - comparableTargetProbability.Value);
 
                             await _consumer.AckAsync(
                                 _streams.PolymarketOrderIntents,
@@ -367,22 +372,23 @@ namespace Arb.Core.Executor.Worker
                                     reason: "ENTRY_HEADROOM_BELOW_MINIMUM",
                                     entryMid: polymarketEntryPrice,
                                     comparableTarget: comparableTargetProbability,
+                                    rawTargetProbability: (double)intent.TargetProbability,
                                     headroomToTarget: headroomToTarget,
                                     timeToKickoffSeconds: timeToKickoff.TotalSeconds,
                                     rawPayload: payload,
                                     ct: stoppingToken);
 
                                 _logger.LogInformation(
-                                    "Polymarket intent rejected. Reason=ENTRY_HEADROOM_BELOW_MINIMUM intentId={IntentId} team={Team} conditionId={ConditionId} targetSide={TargetSide} entryMid={EntryMid:F4} comparableTarget={ComparableTarget:F4} headroom={Headroom:F4} minHeadroom={MinHeadroom:F4} rawTarget={RawTarget:F4}",
+                                    "Polymarket intent rejected. Reason=ENTRY_HEADROOM_BELOW_MINIMUM intentId={IntentId} team={Team} conditionId={ConditionId} targetSide={TargetSide} entryMid={EntryMid:F4} comparableTarget={ComparableTarget:F4} rawTarget={RawTarget:F4} headroom={Headroom:F4} minHeadroom={MinHeadroom:F4}",
                                     intent.IntentId,
                                     intent.ObservedTeam,
                                     intent.PolymarketConditionId,
                                     intent.TargetSide,
                                     polymarketEntryPrice.Value,
                                     comparableTargetProbability.Value,
+                                    intent.TargetProbability,
                                     headroomToTarget,
-                                    MinHeadroomToTargetToOpen,
-                                    intent.TargetProbability);
+                                    MinHeadroomToTargetToOpen);
 
                                 await _consumer.AckAsync(
                                     _streams.PolymarketOrderIntents,
@@ -394,12 +400,12 @@ namespace Arb.Core.Executor.Worker
                         }
 
                         var hasDuplicateOpenPosition = await positionRepo.ExistsOpenDuplicateAsync(
-                                                                                                    intent.SportKey ?? "soccer",
-                                                                                                    intent.ObservedEventId,
-                                                                                                    intent.PolymarketConditionId,
-                                                                                                    intent.TargetTokenId,
-                                                                                                    intent.TargetSide,
-                                                                                                    stoppingToken);
+                            intent.SportKey ?? "soccer",
+                            intent.ObservedEventId,
+                            intent.PolymarketConditionId,
+                            intent.TargetTokenId,
+                            intent.TargetSide,
+                            stoppingToken);
 
                         if (hasDuplicateOpenPosition)
                         {
@@ -409,6 +415,7 @@ namespace Arb.Core.Executor.Worker
                                 reason: "DUPLICATE_OPEN_POSITION",
                                 entryMid: polymarketEntryPrice,
                                 comparableTarget: comparableTargetProbability,
+                                rawTargetProbability: (double)intent.TargetProbability,
                                 headroomToTarget: comparableTargetProbability.HasValue && polymarketEntryPrice.HasValue
                                     ? comparableTargetProbability.Value - polymarketEntryPrice.Value
                                     : null,
@@ -569,6 +576,7 @@ namespace Arb.Core.Executor.Worker
             string reason,
             double? entryMid,
             double? comparableTarget,
+            double? rawTargetProbability,
             double? headroomToTarget,
             double? timeToKickoffSeconds,
             string rawPayload,
@@ -585,6 +593,7 @@ namespace Arb.Core.Executor.Worker
                 Reason: reason,
                 EntryMid: entryMid,
                 ComparableTarget: comparableTarget,
+                RawTargetProbability: rawTargetProbability,
                 HeadroomToTarget: headroomToTarget,
                 TimeToKickoffSeconds: timeToKickoffSeconds,
                 CreatedAt: DateTime.UtcNow,

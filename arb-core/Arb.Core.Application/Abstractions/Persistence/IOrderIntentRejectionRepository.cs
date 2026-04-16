@@ -16,6 +16,7 @@
         string Reason,
         double? EntryMid,
         double? ComparableTarget,
+        double? RawTargetProbability,
         double? HeadroomToTarget,
         double? TimeToKickoffSeconds,
         DateTime CreatedAt,

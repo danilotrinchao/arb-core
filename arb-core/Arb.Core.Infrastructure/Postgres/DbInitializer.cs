@@ -47,6 +47,7 @@ namespace Arb.Core.Infrastructure.Postgres
                     reason                  VARCHAR(100) NOT NULL,
                     entry_mid               DOUBLE PRECISION NULL,
                     comparable_target       DOUBLE PRECISION NULL,
+                    raw_target_probability  DOUBLE PRECISION NULL,
                     headroom_to_target      DOUBLE PRECISION NULL,
                     time_to_kickoff_seconds DOUBLE PRECISION NULL,
                     created_at              TIMESTAMPTZ NOT NULL,
@@ -140,6 +141,9 @@ namespace Arb.Core.Infrastructure.Postgres
                 ALTER TABLE positions ADD COLUMN IF NOT EXISTS last_price_checked_at TIMESTAMPTZ NULL;
                 ALTER TABLE positions ADD COLUMN IF NOT EXISTS close_price DOUBLE PRECISION NULL;
                 ALTER TABLE positions ADD COLUMN IF NOT EXISTS exit_reason VARCHAR(50) NULL;
+
+                ALTER TABLE order_intent_rejections
+                    ADD COLUMN IF NOT EXISTS raw_target_probability DOUBLE PRECISION NULL;
 
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_positions_intent_id
                     ON positions(intent_id);
