@@ -636,16 +636,24 @@ namespace Arb.Core.Executor.Worker
 
             var targetSide = intent.TargetSide ?? string.Empty;
 
-            if (string.Equals(targetSide, "YES", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(targetSide, "SIDE_A", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(targetSide, "YES", StringComparison.OrdinalIgnoreCase))
             {
                 return Math.Round(rawTarget, 4, MidpointRounding.AwayFromZero);
             }
 
-            if (string.Equals(targetSide, "NO", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(targetSide, "SIDE_B", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(targetSide, "NO", StringComparison.OrdinalIgnoreCase))
             {
                 return Math.Round(1d - rawTarget, 4, MidpointRounding.AwayFromZero);
+            }
+
+            if (string.Equals(targetSide, "SIDE_A", StringComparison.OrdinalIgnoreCase))
+            {
+                return Math.Round(rawTarget, 4, MidpointRounding.AwayFromZero);
+            }
+
+            if (string.Equals(targetSide, "SIDE_B", StringComparison.OrdinalIgnoreCase))
+            {
+                return Math.Round(rawTarget, 4, MidpointRounding.AwayFromZero);
             }
 
             return Math.Round(rawTarget, 4, MidpointRounding.AwayFromZero);
