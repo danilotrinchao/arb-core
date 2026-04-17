@@ -10,7 +10,7 @@
 
         // Limite de posições abertas exclusivo para o fluxo Polymarket
         // Separado do legado para que um não bloqueie o outro
-        public int MaxPolymarketOpenPositions { get; init; } = 250;
+        public int MaxPolymarketOpenPositions { get; init; } = 350;
 
         // Stake fixo em USD por posição Polymarket
         // Na estratégia de convergência o risco por posição é fixo e previsível
