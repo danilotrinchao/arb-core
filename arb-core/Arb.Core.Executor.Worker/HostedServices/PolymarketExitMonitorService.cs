@@ -14,10 +14,8 @@ namespace Arb.Core.Executor.Worker.HostedServices
         private const string ExitKickoffFallback = "KICKOFF_FALLBACK";
         private const string ExitKickoffNoPrice = "KICKOFF_NO_PRICE";
         private const string ExitExpiredNoClose = "EXPIRED_NO_CLOSE";
+        private const string ExitEarlyKickoffNoConvergence = "EARLY_KICKOFF_EXIT_NO_CONVERGENCE";
 
-        // Guard 2:
-        // só consideramos convergência válida se houver melhora mínima real
-        // sobre o preço de entrada na Polymarket.
         private const double MinImprovementOverEntryToConverge = 0.02d;
 
         private readonly IServiceScopeFactory _scopeFactory;
@@ -43,10 +41,11 @@ namespace Arb.Core.Executor.Worker.HostedServices
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation(
-                "PolymarketExitMonitor started. " +
-                "Interval={Interval}s KickoffWindow={KickoffWindow}min MaxPriceAge={MaxAge}min",
+                "PolymarketExitMonitor started. Interval={Interval}s KickoffWindow={KickoffWindow}min EarlyExitWindow={EarlyExitWindow}min MinGapToTargetForEarlyExit={MinGap} MaxPriceAge={MaxAge}min",
                 _settlementOptions.ExitMonitorIntervalSeconds,
                 _settlementOptions.MinutesBeforeKickoffToClose,
+                _settlementOptions.MinutesBeforeKickoffToEarlyExit,
+                _settlementOptions.MinGapToTargetForEarlyExit,
                 _settlementOptions.MaxPriceAgeMinutes);
 
             while (!stoppingToken.IsCancellationRequested)
@@ -142,7 +141,13 @@ namespace Arb.Core.Executor.Worker.HostedServices
             CancellationToken ct)
         {
             var timeToKickoff = position.CommenceTime - utcNow;
-            var kickoffWindowReached = timeToKickoff <= TimeSpan.FromMinutes(_settlementOptions.MinutesBeforeKickoffToClose);
+            var kickoffWindowReached =
+                timeToKickoff <= TimeSpan.FromMinutes(_settlementOptions.MinutesBeforeKickoffToClose);
+
+            var earlyExitWindowReached =
+                timeToKickoff <= TimeSpan.FromMinutes(_settlementOptions.MinutesBeforeKickoffToEarlyExit) &&
+                timeToKickoff > TimeSpan.FromMinutes(_settlementOptions.MinutesBeforeKickoffToClose);
+
             var kickoffPassed = utcNow > position.CommenceTime;
 
             decimal? currentMidPrice = null;
@@ -159,8 +164,6 @@ namespace Arb.Core.Executor.Worker.HostedServices
 
             var comparableTargetProbability = GetComparableTargetProbability(position);
 
-            // Guard 2: só fecha por convergência se houve melhora mínima real
-            // acima do preço de entrada na Polymarket.
             var entryForConvergence = position.PolymarketEntryPrice ?? position.EntryPrice;
             double? minConvergedExitPrice = null;
 
@@ -184,9 +187,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 hasImprovedSinceEntry)
             {
                 _logger.LogInformation(
-                    "Convergence reached. positionId={PositionId} team={Team} " +
-                    "mid={Mid:F4} comparableTarget={ComparableTarget:F4} requiredExit={RequiredExit:F4} rawTarget={RawTarget:F4} " +
-                    "targetSide={TargetSide} entry={Entry} timeToKickoff={TimeToKickoff}",
+                    "Convergence reached. positionId={PositionId} team={Team} mid={Mid:F4} comparableTarget={ComparableTarget:F4} requiredExit={RequiredExit:F4} rawTarget={RawTarget:F4} targetSide={TargetSide} entry={Entry} timeToKickoff={TimeToKickoff}",
                     position.Id,
                     position.ObservedTeam,
                     currentMidPrice.Value,
@@ -210,15 +211,54 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 return;
             }
 
+            if (earlyExitWindowReached &&
+                currentMidPrice.HasValue &&
+                comparableTargetProbability.HasValue)
+            {
+                var gapToTarget = comparableTargetProbability.Value - (double)currentMidPrice.Value;
+
+                if (gapToTarget >= _settlementOptions.MinGapToTargetForEarlyExit)
+                {
+                    _logger.LogInformation(
+                        "Early kickoff exit triggered. positionId={PositionId} team={Team} mid={Mid:F4} comparableTarget={ComparableTarget:F4} gapToTarget={GapToTarget:F4} earlyExitWindowMin={EarlyExitWindowMin} timeToKickoff={TimeToKickoff}",
+                        position.Id,
+                        position.ObservedTeam,
+                        currentMidPrice.Value,
+                        comparableTargetProbability.Value,
+                        gapToTarget,
+                        _settlementOptions.MinutesBeforeKickoffToEarlyExit,
+                        timeToKickoff.ToString(@"hh\:mm\:ss"));
+
+                    await ClosePositionAsync(
+                        position: position,
+                        closePrice: currentMidPrice,
+                        exitReason: ExitEarlyKickoffNoConvergence,
+                        utcNow: utcNow,
+                        positionRepo: positionRepo,
+                        scope: scope,
+                        hadMissingMidpointAtClose: false,
+                        usedLastKnownMidPriceFallback: false,
+                        ct: ct);
+                    return;
+                }
+
+                _logger.LogDebug(
+                    "Early exit window reached but position kept open. positionId={PositionId} team={Team} mid={Mid:F4} comparableTarget={ComparableTarget:F4} gapToTarget={GapToTarget:F4} requiredGap={RequiredGap:F4} timeToKickoff={TimeToKickoff}",
+                    position.Id,
+                    position.ObservedTeam,
+                    currentMidPrice.Value,
+                    comparableTargetProbability.Value,
+                    gapToTarget,
+                    _settlementOptions.MinGapToTargetForEarlyExit,
+                    timeToKickoff.ToString(@"hh\:mm\:ss"));
+            }
+
             if (kickoffWindowReached)
             {
                 if (currentMidPrice.HasValue)
                 {
                     _logger.LogInformation(
-                        "Kickoff window reached — closing with current price. " +
-                        "positionId={PositionId} team={Team} " +
-                        "mid={Mid:F4} comparableTarget={ComparableTarget} requiredExit={RequiredExit} rawTarget={RawTarget} " +
-                        "targetSide={TargetSide} timeToKickoff={TimeToKickoff}",
+                        "Kickoff window reached — closing with current price. positionId={PositionId} team={Team} mid={Mid:F4} comparableTarget={ComparableTarget} requiredExit={RequiredExit} rawTarget={RawTarget} targetSide={TargetSide} timeToKickoff={TimeToKickoff}",
                         position.Id,
                         position.ObservedTeam,
                         currentMidPrice.Value,
@@ -253,9 +293,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     if (priceAge <= maxAge)
                     {
                         _logger.LogWarning(
-                            "Kickoff window reached — CLOB unavailable, using last known price. " +
-                            "positionId={PositionId} team={Team} " +
-                            "lastMid={LastMid:F4} priceAge={PriceAge}",
+                            "Kickoff window reached — CLOB unavailable, using last known price. positionId={PositionId} team={Team} lastMid={LastMid:F4} priceAge={PriceAge}",
                             position.Id,
                             position.ObservedTeam,
                             position.LastKnownMidPrice.Value,
@@ -278,9 +316,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 if (kickoffPassed)
                 {
                     _logger.LogError(
-                        "CRITICAL: Position expired without reliable close price. " +
-                        "positionId={PositionId} team={Team} conditionId={ConditionId} " +
-                        "commenceTime={CommenceTime} utcNow={UtcNow}",
+                        "CRITICAL: Position expired without reliable close price. positionId={PositionId} team={Team} conditionId={ConditionId} commenceTime={CommenceTime} utcNow={UtcNow}",
                         position.Id,
                         position.ObservedTeam,
                         position.PolymarketConditionId,
@@ -301,9 +337,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 }
 
                 _logger.LogError(
-                    "Kickoff window reached — no reliable price available. " +
-                    "positionId={PositionId} team={Team} " +
-                    "lastChecked={LastChecked} timeToKickoff={TimeToKickoff}",
+                    "Kickoff window reached — no reliable price available. positionId={PositionId} team={Team} lastChecked={LastChecked} timeToKickoff={TimeToKickoff}",
                     position.Id,
                     position.ObservedTeam,
                     position.LastPriceCheckedAt?.ToString("O") ?? "never",
@@ -323,9 +357,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
             }
 
             _logger.LogDebug(
-                "Position monitoring. positionId={PositionId} team={Team} " +
-                "mid={Mid} comparableTarget={ComparableTarget} requiredExit={RequiredExit} rawTarget={RawTarget} " +
-                "targetSide={TargetSide} entry={Entry} timeToKickoff={TimeToKickoff}",
+                "Position monitoring. positionId={PositionId} team={Team} mid={Mid} comparableTarget={ComparableTarget} requiredExit={RequiredExit} rawTarget={RawTarget} targetSide={TargetSide} entry={Entry} timeToKickoff={TimeToKickoff}",
                 position.Id,
                 position.ObservedTeam,
                 currentMidPrice.HasValue
@@ -359,10 +391,14 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 return Math.Round(rawTarget, 4, MidpointRounding.AwayFromZero);
             }
 
-            if (string.Equals(targetSide, "NO", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(targetSide, "SIDE_B", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(targetSide, "NO", StringComparison.OrdinalIgnoreCase))
             {
                 return Math.Round(1d - rawTarget, 4, MidpointRounding.AwayFromZero);
+            }
+
+            if (string.Equals(targetSide, "SIDE_B", StringComparison.OrdinalIgnoreCase))
+            {
+                return Math.Round(rawTarget, 4, MidpointRounding.AwayFromZero);
             }
 
             return Math.Round(rawTarget, 4, MidpointRounding.AwayFromZero);
@@ -416,6 +452,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 ExitKickoffFallback => "SETTLED_KICKOFF",
                 ExitKickoffNoPrice => "SETTLED_NO_PRICE",
                 ExitExpiredNoClose => "SETTLED_EXPIRED",
+                ExitEarlyKickoffNoConvergence => "SETTLED_EARLY_KICKOFF_NO_CONVERGENCE",
                 _ => "SETTLED"
             };
 
@@ -470,9 +507,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
             await analyticsRepo.InsertClosureAnalyticsAsync(analytics, ct);
 
             _logger.LogInformation(
-                "Position closed. positionId={PositionId} team={Team} " +
-                "exitReason={ExitReason} entry={Entry:F4} close={Close} " +
-                "pnl={Pnl} stake={Stake}",
+                "Position closed. positionId={PositionId} team={Team} exitReason={ExitReason} entry={Entry:F4} close={Close} pnl={Pnl} stake={Stake}",
                 position.Id,
                 position.ObservedTeam,
                 exitReason,
