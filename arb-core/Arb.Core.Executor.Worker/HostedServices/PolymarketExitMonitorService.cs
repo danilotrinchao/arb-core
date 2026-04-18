@@ -216,7 +216,15 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 comparableTargetProbability.HasValue)
             {
                 var gapToTarget = comparableTargetProbability.Value - (double)currentMidPrice.Value;
-
+                _logger.LogInformation(
+                        "Early kickoff exit triggered. positionId={PositionId} team={Team} mid={Mid:F4} comparableTarget={ComparableTarget:F4} gapToTarget={GapToTarget:F4} earlyExitWindowMin={EarlyExitWindowMin} timeToKickoff={TimeToKickoff}",
+                        position.Id,
+                        position.ObservedTeam,
+                        currentMidPrice.Value,
+                        comparableTargetProbability.Value,
+                        gapToTarget,
+                        _settlementOptions.MinutesBeforeKickoffToEarlyExit,
+                        timeToKickoff.ToString(@"hh\:mm\:ss"));
                 if (gapToTarget >= _settlementOptions.MinGapToTargetForEarlyExit)
                 {
                     _logger.LogInformation(

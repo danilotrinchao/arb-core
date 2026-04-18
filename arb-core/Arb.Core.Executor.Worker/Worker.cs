@@ -81,6 +81,13 @@ namespace Arb.Core.Executor.Worker
                 "Executor started. PolymarketConsuming={Stream} FixedStake={Stake}",
                 _streams.PolymarketOrderIntents,
                 _risk.PolymarketFixedStakeUsd);
+            _logger.LogInformation(
+                "PolymarketExitMonitor started. Interval={Interval}s KickoffWindow={KickoffWindow}min EarlyExitWindow={EarlyExitWindow}min MinGapToTargetForEarlyExit={MinGap} MaxPriceAge={MaxAge}min",
+                _settlement.ExitMonitorIntervalSeconds,
+                _settlement.MinutesBeforeKickoffToClose,
+                _settlement.MinutesBeforeKickoffToEarlyExit,
+                _settlement.MinGapToTargetForEarlyExit,
+                _settlement.MaxPriceAgeMinutes);
 
             await RunPolymarketExecutionLoopAsync(stoppingToken);
         }
