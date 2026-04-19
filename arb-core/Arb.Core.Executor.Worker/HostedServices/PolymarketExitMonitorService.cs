@@ -16,6 +16,8 @@ namespace Arb.Core.Executor.Worker.HostedServices
         private const string ExitExpiredNoClose = "EXPIRED_NO_CLOSE";
         private const string ExitEarlyKickoffNoConvergence = "EARLY_KICKOFF_EXIT_NO_CONVERGENCE";
 
+        // Só consideramos convergência válida se houver melhora mínima real
+        // sobre o preço de entrada na Polymarket
         private const double MinImprovementOverEntryToConverge = 0.02d;
 
         private readonly IServiceScopeFactory _scopeFactory;
@@ -141,6 +143,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
             CancellationToken ct)
         {
             var timeToKickoff = position.CommenceTime - utcNow;
+
             var kickoffWindowReached =
                 timeToKickoff <= TimeSpan.FromMinutes(_settlementOptions.MinutesBeforeKickoffToClose);
 
@@ -155,6 +158,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 midPrices.TryGetValue(position.TargetTokenId, out var fetchedMid))
             {
                 currentMidPrice = fetchedMid;
+
                 await positionRepo.UpdateLastKnownMidPriceAsync(
                     position.Id,
                     (double)fetchedMid,
@@ -216,15 +220,17 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 comparableTargetProbability.HasValue)
             {
                 var gapToTarget = comparableTargetProbability.Value - (double)currentMidPrice.Value;
+
                 _logger.LogInformation(
-                        "Early kickoff exit triggered. positionId={PositionId} team={Team} mid={Mid:F4} comparableTarget={ComparableTarget:F4} gapToTarget={GapToTarget:F4} earlyExitWindowMin={EarlyExitWindowMin} timeToKickoff={TimeToKickoff}",
-                        position.Id,
-                        position.ObservedTeam,
-                        currentMidPrice.Value,
-                        comparableTargetProbability.Value,
-                        gapToTarget,
-                        _settlementOptions.MinutesBeforeKickoffToEarlyExit,
-                        timeToKickoff.ToString(@"hh\:mm\:ss"));
+                    "Early exit window evaluated. positionId={PositionId} team={Team} mid={Mid:F4} comparableTarget={ComparableTarget:F4} gapToTarget={GapToTarget:F4} requiredGap={RequiredGap:F4} timeToKickoff={TimeToKickoff}",
+                    position.Id,
+                    position.ObservedTeam,
+                    currentMidPrice.Value,
+                    comparableTargetProbability.Value,
+                    gapToTarget,
+                    _settlementOptions.MinGapToTargetForEarlyExit,
+                    timeToKickoff.ToString(@"hh\:mm\:ss"));
+
                 if (gapToTarget >= _settlementOptions.MinGapToTargetForEarlyExit)
                 {
                     _logger.LogInformation(
@@ -250,12 +256,10 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     return;
                 }
 
-                _logger.LogDebug(
-                    "Early exit window reached but position kept open. positionId={PositionId} team={Team} mid={Mid:F4} comparableTarget={ComparableTarget:F4} gapToTarget={GapToTarget:F4} requiredGap={RequiredGap:F4} timeToKickoff={TimeToKickoff}",
+                _logger.LogInformation(
+                    "Early exit window reached but position kept open. positionId={PositionId} team={Team} gapToTarget={GapToTarget:F4} requiredGap={RequiredGap:F4} timeToKickoff={TimeToKickoff}",
                     position.Id,
                     position.ObservedTeam,
-                    currentMidPrice.Value,
-                    comparableTargetProbability.Value,
                     gapToTarget,
                     _settlementOptions.MinGapToTargetForEarlyExit,
                     timeToKickoff.ToString(@"hh\:mm\:ss"));

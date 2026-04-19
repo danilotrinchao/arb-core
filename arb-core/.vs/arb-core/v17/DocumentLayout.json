@@ -1,0 +1,366 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{8DF1C305-4233-4AC4-A7E6-F5ABDB07757C}|Arb.Core.Executor.Worker\\Arb.Core.Executor.Worker.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.executor.worker\\hostedservices\\polymarketexitmonitorservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{8DF1C305-4233-4AC4-A7E6-F5ABDB07757C}|Arb.Core.Executor.Worker\\Arb.Core.Executor.Worker.csproj|solutionrelative:arb.core.executor.worker\\hostedservices\\polymarketexitmonitorservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8DF1C305-4233-4AC4-A7E6-F5ABDB07757C}|Arb.Core.Executor.Worker\\Arb.Core.Executor.Worker.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.executor.worker\\options\\settlementoptions.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{8DF1C305-4233-4AC4-A7E6-F5ABDB07757C}|Arb.Core.Executor.Worker\\Arb.Core.Executor.Worker.csproj|solutionrelative:arb.core.executor.worker\\options\\settlementoptions.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8DF1C305-4233-4AC4-A7E6-F5ABDB07757C}|Arb.Core.Executor.Worker\\Arb.Core.Executor.Worker.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.executor.worker\\worker.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{8DF1C305-4233-4AC4-A7E6-F5ABDB07757C}|Arb.Core.Executor.Worker\\Arb.Core.Executor.Worker.csproj|solutionrelative:arb.core.executor.worker\\worker.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8DF1C305-4233-4AC4-A7E6-F5ABDB07757C}|Arb.Core.Executor.Worker\\Arb.Core.Executor.Worker.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.executor.worker\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{8DF1C305-4233-4AC4-A7E6-F5ABDB07757C}|Arb.Core.Executor.Worker\\Arb.Core.Executor.Worker.csproj|solutionrelative:arb.core.executor.worker\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8DF1C305-4233-4AC4-A7E6-F5ABDB07757C}|Arb.Core.Executor.Worker\\Arb.Core.Executor.Worker.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.executor.worker\\options\\riskoptions.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{8DF1C305-4233-4AC4-A7E6-F5ABDB07757C}|Arb.Core.Executor.Worker\\Arb.Core.Executor.Worker.csproj|solutionrelative:arb.core.executor.worker\\options\\riskoptions.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A9C1B655-7E78-4E72-9A28-E4BB21FA8D68}|Arb.Core.Infrastructure\\Arb.Core.Infrastructure.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.infrastructure\\postgres\\dbinitializer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{A9C1B655-7E78-4E72-9A28-E4BB21FA8D68}|Arb.Core.Infrastructure\\Arb.Core.Infrastructure.csproj|solutionrelative:arb.core.infrastructure\\postgres\\dbinitializer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A9C1B655-7E78-4E72-9A28-E4BB21FA8D68}|Arb.Core.Infrastructure\\Arb.Core.Infrastructure.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.infrastructure\\dependencyinjection\\servicecollectionextensions.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{A9C1B655-7E78-4E72-9A28-E4BB21FA8D68}|Arb.Core.Infrastructure\\Arb.Core.Infrastructure.csproj|solutionrelative:arb.core.infrastructure\\dependencyinjection\\servicecollectionextensions.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A9C1B655-7E78-4E72-9A28-E4BB21FA8D68}|Arb.Core.Infrastructure\\Arb.Core.Infrastructure.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.infrastructure\\postgres\\orderintentrejectionrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{A9C1B655-7E78-4E72-9A28-E4BB21FA8D68}|Arb.Core.Infrastructure\\Arb.Core.Infrastructure.csproj|solutionrelative:arb.core.infrastructure\\postgres\\orderintentrejectionrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8B2521C2-6276-43DE-AAC5-21B586663703}|Arb.Core.Application\\Arb.Core.Application.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.application\\abstractions\\persistence\\iorderintentrejectionrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{8B2521C2-6276-43DE-AAC5-21B586663703}|Arb.Core.Application\\Arb.Core.Application.csproj|solutionrelative:arb.core.application\\abstractions\\persistence\\iorderintentrejectionrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4470593D-E529-4E14-B0C5-2FD2B96498A8}|Arb.Core.Contracts\\Arb.Core.Contracts.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.contracts\\common\\polimarketsignals\\polymarketorderintentv1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4470593D-E529-4E14-B0C5-2FD2B96498A8}|Arb.Core.Contracts\\Arb.Core.Contracts.csproj|solutionrelative:arb.core.contracts\\common\\polimarketsignals\\polymarketorderintentv1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{1F610ABA-C936-498E-9475-072263A1BECD}|Arb.Core.SignalEngine.Worker\\Arb.Core.SignalEngine.Worker.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.signalengine.worker\\hostedservices\\polymarketobservedsignalhostedservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{1F610ABA-C936-498E-9475-072263A1BECD}|Arb.Core.SignalEngine.Worker\\Arb.Core.SignalEngine.Worker.csproj|solutionrelative:arb.core.signalengine.worker\\hostedservices\\polymarketobservedsignalhostedservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{E1A78D8B-8C97-4A54-AAD2-8C8A055EFC13}|Arb.Core.OddsIngestor.Worker\\Arb.Core.OddsIngestor.Worker.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.oddsingestor.worker\\worker.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{E1A78D8B-8C97-4A54-AAD2-8C8A055EFC13}|Arb.Core.OddsIngestor.Worker\\Arb.Core.OddsIngestor.Worker.csproj|solutionrelative:arb.core.oddsingestor.worker\\worker.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A9C1B655-7E78-4E72-9A28-E4BB21FA8D68}|Arb.Core.Infrastructure\\Arb.Core.Infrastructure.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.infrastructure\\postgres\\positionrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{A9C1B655-7E78-4E72-9A28-E4BB21FA8D68}|Arb.Core.Infrastructure\\Arb.Core.Infrastructure.csproj|solutionrelative:arb.core.infrastructure\\postgres\\positionrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8B2521C2-6276-43DE-AAC5-21B586663703}|Arb.Core.Application\\Arb.Core.Application.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.application\\abstractions\\persistence\\ipositionrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{8B2521C2-6276-43DE-AAC5-21B586663703}|Arb.Core.Application\\Arb.Core.Application.csproj|solutionrelative:arb.core.application\\abstractions\\persistence\\ipositionrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{E1A78D8B-8C97-4A54-AAD2-8C8A055EFC13}|Arb.Core.OddsIngestor.Worker\\Arb.Core.OddsIngestor.Worker.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.oddsingestor.worker\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{E1A78D8B-8C97-4A54-AAD2-8C8A055EFC13}|Arb.Core.OddsIngestor.Worker\\Arb.Core.OddsIngestor.Worker.csproj|solutionrelative:arb.core.oddsingestor.worker\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8DF1C305-4233-4AC4-A7E6-F5ABDB07757C}|Arb.Core.Executor.Worker\\Arb.Core.Executor.Worker.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.executor.worker\\appsettings.development.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{8DF1C305-4233-4AC4-A7E6-F5ABDB07757C}|Arb.Core.Executor.Worker\\Arb.Core.Executor.Worker.csproj|solutionrelative:arb.core.executor.worker\\appsettings.development.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A9C1B655-7E78-4E72-9A28-E4BB21FA8D68}|Arb.Core.Infrastructure\\Arb.Core.Infrastructure.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.infrastructure\\postgres\\orderintentrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{A9C1B655-7E78-4E72-9A28-E4BB21FA8D68}|Arb.Core.Infrastructure\\Arb.Core.Infrastructure.csproj|solutionrelative:arb.core.infrastructure\\postgres\\orderintentrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8B2521C2-6276-43DE-AAC5-21B586663703}|Arb.Core.Application\\Arb.Core.Application.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.application\\abstractions\\persistence\\iorderintentrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{8B2521C2-6276-43DE-AAC5-21B586663703}|Arb.Core.Application\\Arb.Core.Application.csproj|solutionrelative:arb.core.application\\abstractions\\persistence\\iorderintentrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8B2521C2-6276-43DE-AAC5-21B586663703}|Arb.Core.Application\\Arb.Core.Application.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.application\\abstractions\\persistence\\ipositionanalyticsrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{8B2521C2-6276-43DE-AAC5-21B586663703}|Arb.Core.Application\\Arb.Core.Application.csproj|solutionrelative:arb.core.application\\abstractions\\persistence\\ipositionanalyticsrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8B2521C2-6276-43DE-AAC5-21B586663703}|Arb.Core.Application\\Arb.Core.Application.csproj|c:\\users\\danilo\\desktop\\arbitragem\\arb-core\\arb-core\\arb.core.application\\abstractions\\persistence\\iexecutionreportrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{8B2521C2-6276-43DE-AAC5-21B586663703}|Arb.Core.Application\\Arb.Core.Application.csproj|solutionrelative:arb.core.application\\abstractions\\persistence\\iexecutionreportrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 9,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "SettlementOptions.cs",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Executor.Worker\\Options\\SettlementOptions.cs",
+              "RelativeDocumentMoniker": "Arb.Core.Executor.Worker\\Options\\SettlementOptions.cs",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Executor.Worker\\Options\\SettlementOptions.cs",
+              "RelativeToolTip": "Arb.Core.Executor.Worker\\Options\\SettlementOptions.cs",
+              "ViewState": "AgIAAAgAAAAAAAAAAADgvxcAAAAWAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-18T00:29:21.37Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:128:0:{1fc202d4-d401-403c-9834-5b218574bb67}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:129:0:{1fc202d4-d401-403c-9834-5b218574bb67}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "Worker.cs",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Executor.Worker\\Worker.cs",
+              "RelativeDocumentMoniker": "Arb.Core.Executor.Worker\\Worker.cs",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Executor.Worker\\Worker.cs",
+              "RelativeToolTip": "Arb.Core.Executor.Worker\\Worker.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAFkAAAAbAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-13T03:55:05.582Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "DbInitializer.cs",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Infrastructure\\Postgres\\DbInitializer.cs",
+              "RelativeDocumentMoniker": "Arb.Core.Infrastructure\\Postgres\\DbInitializer.cs",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Infrastructure\\Postgres\\DbInitializer.cs",
+              "RelativeToolTip": "Arb.Core.Infrastructure\\Postgres\\DbInitializer.cs",
+              "ViewState": "AgIAALAAAAAAAAAAAAAQwNcAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-13T02:29:58.79Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "IOrderIntentRejectionRepository.cs",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Application\\Abstractions\\Persistence\\IOrderIntentRejectionRepository.cs",
+              "RelativeDocumentMoniker": "Arb.Core.Application\\Abstractions\\Persistence\\IOrderIntentRejectionRepository.cs",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Application\\Abstractions\\Persistence\\IOrderIntentRejectionRepository.cs",
+              "RelativeToolTip": "Arb.Core.Application\\Abstractions\\Persistence\\IOrderIntentRejectionRepository.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABoAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-14T18:37:09.863Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "OrderIntentRejectionRepository.cs",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Infrastructure\\Postgres\\OrderIntentRejectionRepository.cs",
+              "RelativeDocumentMoniker": "Arb.Core.Infrastructure\\Postgres\\OrderIntentRejectionRepository.cs",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Infrastructure\\Postgres\\OrderIntentRejectionRepository.cs",
+              "RelativeToolTip": "Arb.Core.Infrastructure\\Postgres\\OrderIntentRejectionRepository.cs",
+              "ViewState": "AgIAAC0AAAAAAAAAAAAQwFQAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-14T18:56:22.427Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "ServiceCollectionExtensions.cs",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Infrastructure\\DependencyInjection\\ServiceCollectionExtensions.cs",
+              "RelativeDocumentMoniker": "Arb.Core.Infrastructure\\DependencyInjection\\ServiceCollectionExtensions.cs",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Infrastructure\\DependencyInjection\\ServiceCollectionExtensions.cs",
+              "RelativeToolTip": "Arb.Core.Infrastructure\\DependencyInjection\\ServiceCollectionExtensions.cs",
+              "ViewState": "AgIAACsAAAAAAAAAAAAAwD0AAAAPAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-12T19:55:32.592Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "appsettings.json",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Executor.Worker\\appsettings.json",
+              "RelativeDocumentMoniker": "Arb.Core.Executor.Worker\\appsettings.json",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Executor.Worker\\appsettings.json",
+              "RelativeToolTip": "Arb.Core.Executor.Worker\\appsettings.json",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABkAAAAEAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-04-14T20:42:02.498Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "PolymarketExitMonitorService.cs",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Executor.Worker\\HostedServices\\PolymarketExitMonitorService.cs",
+              "RelativeDocumentMoniker": "Arb.Core.Executor.Worker\\HostedServices\\PolymarketExitMonitorService.cs",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Executor.Worker\\HostedServices\\PolymarketExitMonitorService.cs",
+              "RelativeToolTip": "Arb.Core.Executor.Worker\\HostedServices\\PolymarketExitMonitorService.cs",
+              "ViewState": "AgIAAM0AAAAAAAAAAAAlwNwAAAAkAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-13T01:28:08.612Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "RiskOptions.cs",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Executor.Worker\\Options\\RiskOptions.cs",
+              "RelativeDocumentMoniker": "Arb.Core.Executor.Worker\\Options\\RiskOptions.cs",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Executor.Worker\\Options\\RiskOptions.cs",
+              "RelativeToolTip": "Arb.Core.Executor.Worker\\Options\\RiskOptions.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAuwAwAAABAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-14T20:43:53.153Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 10,
+              "Title": "PolymarketObservedSignalHostedService.cs",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.SignalEngine.Worker\\HostedServices\\PolymarketObservedSignalHostedService.cs",
+              "RelativeDocumentMoniker": "Arb.Core.SignalEngine.Worker\\HostedServices\\PolymarketObservedSignalHostedService.cs",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.SignalEngine.Worker\\HostedServices\\PolymarketObservedSignalHostedService.cs",
+              "RelativeToolTip": "Arb.Core.SignalEngine.Worker\\HostedServices\\PolymarketObservedSignalHostedService.cs",
+              "ViewState": "AgIAAC0BAAAAAAAAAAAqwDgBAAANAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-15T23:50:34.332Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 11,
+              "Title": "Worker.cs",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.OddsIngestor.Worker\\Worker.cs",
+              "RelativeDocumentMoniker": "Arb.Core.OddsIngestor.Worker\\Worker.cs",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.OddsIngestor.Worker\\Worker.cs",
+              "RelativeToolTip": "Arb.Core.OddsIngestor.Worker\\Worker.cs",
+              "ViewState": "AgIAADwDAAAAAAAAAAAQwFQDAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-15T23:50:20.161Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 12,
+              "Title": "PositionRepository.cs",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Infrastructure\\Postgres\\PositionRepository.cs",
+              "RelativeDocumentMoniker": "Arb.Core.Infrastructure\\Postgres\\PositionRepository.cs",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Infrastructure\\Postgres\\PositionRepository.cs",
+              "RelativeToolTip": "Arb.Core.Infrastructure\\Postgres\\PositionRepository.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAC8BAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-13T02:30:16.261Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
+              "Title": "PolymarketOrderIntentV1.cs",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Contracts\\Common\\PolimarketSignals\\PolymarketOrderIntentV1.cs",
+              "RelativeDocumentMoniker": "Arb.Core.Contracts\\Common\\PolimarketSignals\\PolymarketOrderIntentV1.cs",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Contracts\\Common\\PolimarketSignals\\PolymarketOrderIntentV1.cs",
+              "RelativeToolTip": "Arb.Core.Contracts\\Common\\PolimarketSignals\\PolymarketOrderIntentV1.cs",
+              "ViewState": "AgIAAEMAAAAAAAAAAAAIwGIAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-13T04:05:06.592Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 13,
+              "Title": "IPositionRepository.cs",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Application\\Abstractions\\Persistence\\IPositionRepository.cs",
+              "RelativeDocumentMoniker": "Arb.Core.Application\\Abstractions\\Persistence\\IPositionRepository.cs",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Application\\Abstractions\\Persistence\\IPositionRepository.cs",
+              "RelativeToolTip": "Arb.Core.Application\\Abstractions\\Persistence\\IPositionRepository.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAFkAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-13T01:35:54.464Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 14,
+              "Title": "appsettings.json",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.OddsIngestor.Worker\\appsettings.json",
+              "RelativeDocumentMoniker": "Arb.Core.OddsIngestor.Worker\\appsettings.json",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.OddsIngestor.Worker\\appsettings.json",
+              "RelativeToolTip": "Arb.Core.OddsIngestor.Worker\\appsettings.json",
+              "ViewState": "AgIAABYAAAAAAAAAAAAQwC0AAAAdAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-04-12T19:00:12.587Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 15,
+              "Title": "appsettings.Development.json",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Executor.Worker\\appsettings.Development.json",
+              "RelativeDocumentMoniker": "Arb.Core.Executor.Worker\\appsettings.Development.json",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Executor.Worker\\appsettings.Development.json",
+              "RelativeToolTip": "Arb.Core.Executor.Worker\\appsettings.Development.json",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAoAAABGAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-04-15T00:22:20.674Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 16,
+              "Title": "OrderIntentRepository.cs",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Infrastructure\\Postgres\\OrderIntentRepository.cs",
+              "RelativeDocumentMoniker": "Arb.Core.Infrastructure\\Postgres\\OrderIntentRepository.cs",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Infrastructure\\Postgres\\OrderIntentRepository.cs",
+              "RelativeToolTip": "Arb.Core.Infrastructure\\Postgres\\OrderIntentRepository.cs",
+              "ViewState": "AgIAADYAAAAAAAAAAAAUwFsAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-14T18:07:15.642Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 17,
+              "Title": "IOrderIntentRepository.cs",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Application\\Abstractions\\Persistence\\IOrderIntentRepository.cs",
+              "RelativeDocumentMoniker": "Arb.Core.Application\\Abstractions\\Persistence\\IOrderIntentRepository.cs",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Application\\Abstractions\\Persistence\\IOrderIntentRepository.cs",
+              "RelativeToolTip": "Arb.Core.Application\\Abstractions\\Persistence\\IOrderIntentRepository.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAuwAYAAAANAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-14T18:07:05.629Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 18,
+              "Title": "IPositionAnalyticsRepository.cs",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Application\\Abstractions\\Persistence\\IPositionAnalyticsRepository.cs",
+              "RelativeDocumentMoniker": "Arb.Core.Application\\Abstractions\\Persistence\\IPositionAnalyticsRepository.cs",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Application\\Abstractions\\Persistence\\IPositionAnalyticsRepository.cs",
+              "RelativeToolTip": "Arb.Core.Application\\Abstractions\\Persistence\\IPositionAnalyticsRepository.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAACUAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-13T01:49:17.797Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 19,
+              "Title": "IExecutionReportRepository.cs",
+              "DocumentMoniker": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Application\\Abstractions\\Persistence\\IExecutionReportRepository.cs",
+              "RelativeDocumentMoniker": "Arb.Core.Application\\Abstractions\\Persistence\\IExecutionReportRepository.cs",
+              "ToolTip": "C:\\Users\\Danilo\\Desktop\\Arbitragem\\arb-core\\arb-core\\Arb.Core.Application\\Abstractions\\Persistence\\IExecutionReportRepository.cs",
+              "RelativeToolTip": "Arb.Core.Application\\Abstractions\\Persistence\\IExecutionReportRepository.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAkAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-13T01:36:13.373Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
