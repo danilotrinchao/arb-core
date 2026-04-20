@@ -1,12 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
-using System.Text;
 using System.Text.Json;
-using System.Threading.Tasks;
 
 namespace Arb.Core.Infrastructure.External.Polymarket
 {
@@ -39,35 +34,52 @@ namespace Arb.Core.Infrastructure.External.Polymarket
 
         /// <summary>
         /// Consulta o midpoint de um único token.
-        /// Retorna null se o token não tiver orderbook ou em caso de erro persistente.
+        /// Retorna null se o token não tiver orderbook, for inválido,
+        /// ou em caso de erro persistente.
         /// </summary>
         public async Task<decimal?> GetMidpointAsync(
             string tokenId,
             CancellationToken ct)
         {
-            var results = await GetMidpointsAsync(new[] { tokenId }, ct);
+            var normalizedTokenId = tokenId?.Trim();
 
-            // Antes: results.GetValueOrDefault(tokenId) -> retornava 0 quando a chave não existia.
-            // Agora: devolve null quando a chave NÃO estiver presente no dicionário,
-            // para diferenciar ausência de midpoint de preço real 0.
-            return results.TryGetValue(tokenId, out var mid) ? (decimal?)mid : null;
+            if (string.IsNullOrWhiteSpace(normalizedTokenId))
+            {
+                _logger.LogWarning(
+                    "Polymarket CLOB midpoint requested with empty tokenId.");
+                return null;
+            }
+
+            var results = await GetMidpointsAsync(new[] { normalizedTokenId }, ct);
+
+            return results.TryGetValue(normalizedTokenId, out var mid)
+                ? mid
+                : null;
         }
 
         /// <summary>
-        /// Consulta o midpoint de múltiplos tokens em uma única chamada.
-        /// Retorna dicionário tokenId → midPrice.
+        /// Consulta o midpoint de múltiplos tokens.
+        /// Retorna dicionário tokenId -> midPrice.
         /// Tokens sem orderbook ou com erro são omitidos do resultado.
         /// </summary>
         public async Task<IReadOnlyDictionary<string, decimal>> GetMidpointsAsync(
             IReadOnlyList<string> tokenIds,
             CancellationToken ct)
         {
-            if (tokenIds.Count == 0)
-                return new Dictionary<string, decimal>();
+            var normalizedTokenIds = tokenIds
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
 
-            // Constrói query string com múltiplos token_id
-            // GET /midpoint?token_id=abc&token_id=def&token_id=ghi
-            var query = BuildMidpointQuery(tokenIds);
+            if (normalizedTokenIds.Length == 0)
+            {
+                _logger.LogWarning(
+                    "Polymarket CLOB midpoint requested with no valid tokenIds.");
+                return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            var query = BuildMidpointQuery(normalizedTokenIds);
 
             for (var attempt = 1; attempt <= _options.RetryCount; attempt++)
             {
@@ -75,68 +87,79 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                 {
                     using var response = await _httpClient.GetAsync(query, ct);
 
-                    // 400 ou 404 são erros definitivos — token inválido ou sem orderbook
-                    // Não faz sentido tentar de novo
                     if (response.StatusCode == HttpStatusCode.BadRequest ||
                         response.StatusCode == HttpStatusCode.NotFound)
                     {
-                        _logger.LogWarning(
-                            "Polymarket CLOB midpoint returned {Status} for {Count} token(s). No retry.",
-                            response.StatusCode,
-                            tokenIds.Count);
+                        var body = await SafeReadBodyAsync(response, ct);
 
-                        return new Dictionary<string, decimal>();
+                        _logger.LogWarning(
+                            "Polymarket CLOB midpoint returned {StatusCode} for token request. TokenCount={TokenCount} IsSingleToken={IsSingleToken} TokenIds={TokenIds} ResponseBody={ResponseBody}. No retry.",
+                            (int)response.StatusCode,
+                            normalizedTokenIds.Length,
+                            normalizedTokenIds.Length == 1,
+                            string.Join(",", normalizedTokenIds),
+                            body);
+
+                        return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
                     }
 
                     response.EnsureSuccessStatusCode();
 
                     var content = await response.Content.ReadAsStringAsync(ct);
+                    var parsed = ParseMidpointResponse(content, normalizedTokenIds);
 
-                    return ParseMidpointResponse(content, tokenIds);
+                    if (parsed.Count == 0)
+                    {
+                        _logger.LogWarning(
+                            "Polymarket CLOB midpoint returned success but no parsed values. TokenCount={TokenCount} IsSingleToken={IsSingleToken} TokenIds={TokenIds} ResponseBody={ResponseBody}",
+                            normalizedTokenIds.Length,
+                            normalizedTokenIds.Length == 1,
+                            string.Join(",", normalizedTokenIds),
+                            content.Length > 1000 ? content[..1000] : content);
+                    }
+
+                    return parsed;
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
-                    // Cancelamento explícito — propaga sem retry
                     throw;
                 }
                 catch (Exception ex) when (attempt < _options.RetryCount)
                 {
-                    // Erro transitório — aguarda backoff e tenta novamente
                     var delay = TimeSpan.FromMilliseconds(
                         _options.RetryBaseDelayMs * Math.Pow(2, attempt - 1));
 
                     _logger.LogWarning(
                         ex,
-                        "Polymarket CLOB midpoint attempt {Attempt}/{Max} failed. " +
-                        "Retrying in {DelayMs}ms. TokenCount={Count}",
+                        "Polymarket CLOB midpoint attempt {Attempt}/{MaxAttempts} failed. Retrying in {DelayMs}ms. TokenCount={TokenCount} IsSingleToken={IsSingleToken} TokenIds={TokenIds}",
                         attempt,
                         _options.RetryCount,
                         delay.TotalMilliseconds,
-                        tokenIds.Count);
+                        normalizedTokenIds.Length,
+                        normalizedTokenIds.Length == 1,
+                        string.Join(",", normalizedTokenIds));
 
                     await Task.Delay(delay, ct);
                 }
                 catch (Exception ex)
                 {
-                    // Última tentativa falhou — loga e retorna vazio
                     _logger.LogError(
                         ex,
-                        "Polymarket CLOB midpoint failed after {Max} attempt(s). " +
-                        "TokenCount={Count}",
+                        "Polymarket CLOB midpoint failed after {MaxAttempts} attempt(s). TokenCount={TokenCount} IsSingleToken={IsSingleToken} TokenIds={TokenIds}",
                         _options.RetryCount,
-                        tokenIds.Count);
+                        normalizedTokenIds.Length,
+                        normalizedTokenIds.Length == 1,
+                        string.Join(",", normalizedTokenIds));
 
-                    return new Dictionary<string, decimal>();
+                    return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
                 }
             }
 
-            return new Dictionary<string, decimal>();
+            return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
         }
 
         private static string BuildMidpointQuery(IReadOnlyList<string> tokenIds)
         {
-            // Para um único token: /midpoint?token_id=abc
-            // Para múltiplos: /midpoint?token_id=abc&token_id=def
             var queryParts = tokenIds
                 .Where(id => !string.IsNullOrWhiteSpace(id))
                 .Select(id => $"token_id={Uri.EscapeDataString(id)}");
@@ -145,8 +168,8 @@ namespace Arb.Core.Infrastructure.External.Polymarket
         }
 
         private IReadOnlyDictionary<string, decimal> ParseMidpointResponse(
-         string content,
-         IReadOnlyList<string> tokenIds)
+            string content,
+            IReadOnlyList<string> tokenIds)
         {
             var result = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
@@ -160,10 +183,6 @@ namespace Arb.Core.Infrastructure.External.Polymarket
 
                 if (tokenIds.Count == 1)
                 {
-                    // Resposta simples para token único:
-                    // { "mid_price": "0.45" }
-                    // ou
-                    // { "mid": "0.45" }
                     if (root.ValueKind == JsonValueKind.Object &&
                         (root.TryGetProperty("mid_price", out var midPriceEl) ||
                          root.TryGetProperty("mid", out midPriceEl)))
@@ -174,7 +193,8 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                                 midPriceStr,
                                 System.Globalization.NumberStyles.Any,
                                 System.Globalization.CultureInfo.InvariantCulture,
-                                out var midPrice) && midPrice > 0)
+                                out var midPrice) &&
+                            midPrice > 0)
                         {
                             result[tokenIds[0]] = midPrice;
                         }
@@ -182,8 +202,6 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                 }
                 else
                 {
-                    // Resposta para múltiplos tokens:
-                    // pode vir como array de objetos ou objeto indexado por token
                     if (root.ValueKind == JsonValueKind.Array)
                     {
                         foreach (var item in root.EnumerateArray())
@@ -201,8 +219,6 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                             if (!tokenIds.Contains(key, StringComparer.OrdinalIgnoreCase))
                                 continue;
 
-                            // Exemplo:
-                            // { "tokenA": "0.42" }
                             if (value.ValueKind == JsonValueKind.String)
                             {
                                 var raw = value.GetString();
@@ -211,7 +227,8 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                                         raw,
                                         System.Globalization.NumberStyles.Any,
                                         System.Globalization.CultureInfo.InvariantCulture,
-                                        out var parsed) && parsed > 0)
+                                        out var parsed) &&
+                                    parsed > 0)
                                 {
                                     result[key] = parsed;
                                 }
@@ -219,10 +236,6 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                                 continue;
                             }
 
-                            // Exemplo:
-                            // { "tokenA": { "mid_price": "0.42" } }
-                            // ou
-                            // { "tokenA": { "mid": "0.42" } }
                             if (value.ValueKind == JsonValueKind.Object &&
                                 (value.TryGetProperty("mid_price", out var nestedMidPriceEl) ||
                                  value.TryGetProperty("mid", out nestedMidPriceEl)))
@@ -233,7 +246,8 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                                         raw,
                                         System.Globalization.NumberStyles.Any,
                                         System.Globalization.CultureInfo.InvariantCulture,
-                                        out var parsed) && parsed > 0)
+                                        out var parsed) &&
+                                    parsed > 0)
                                 {
                                     result[key] = parsed;
                                 }
@@ -246,23 +260,33 @@ namespace Arb.Core.Infrastructure.External.Polymarket
             {
                 _logger.LogWarning(
                     ex,
-                    "Failed to parse Polymarket CLOB midpoint response. Content={Content}",
-                    content.Length > 200 ? content[..200] : content);
+                    "Failed to parse Polymarket CLOB midpoint response. TokenIds={TokenIds} Content={Content}",
+                    string.Join(",", tokenIds),
+                    content.Length > 500 ? content[..500] : content);
             }
 
             if (tokenIds.Count > 1 && result.Count == 0)
             {
                 _logger.LogWarning(
-                    "Polymarket CLOB returned no parsed midpoints for multi-token request. RequestedTokens={RequestedTokens} Content={Content}",
+                    "Polymarket CLOB returned no parsed midpoints for multi-token request. TokenIds={TokenIds} Content={Content}",
                     string.Join(",", tokenIds),
                     content.Length > 1000 ? content[..1000] : content);
             }
 
+            if (tokenIds.Count == 1 && result.Count == 0)
+            {
+                _logger.LogWarning(
+                    "Polymarket CLOB returned no parsed midpoint for single-token request. TokenId={TokenId} Content={Content}",
+                    tokenIds[0],
+                    content.Length > 500 ? content[..500] : content);
+            }
+
             return result;
         }
+
         private static void ParseMidpointItem(
-        JsonElement item,
-        Dictionary<string, decimal> result)
+            JsonElement item,
+            Dictionary<string, decimal> result)
         {
             if (!item.TryGetProperty("asset_id", out var assetIdEl) &&
                 !item.TryGetProperty("token_id", out assetIdEl))
@@ -283,9 +307,28 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                     midPriceStr,
                     System.Globalization.NumberStyles.Any,
                     System.Globalization.CultureInfo.InvariantCulture,
-                    out var midPrice) && midPrice > 0)
+                    out var midPrice) &&
+                midPrice > 0)
             {
                 result[tokenId] = midPrice;
+            }
+        }
+
+        private static async Task<string> SafeReadBodyAsync(
+            HttpResponseMessage response,
+            CancellationToken ct)
+        {
+            try
+            {
+                var body = await response.Content.ReadAsStringAsync(ct);
+                if (string.IsNullOrWhiteSpace(body))
+                    return "<empty>";
+
+                return body.Length > 1000 ? body[..1000] : body;
+            }
+            catch
+            {
+                return "<unavailable>";
             }
         }
     }
