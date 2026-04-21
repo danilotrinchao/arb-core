@@ -110,7 +110,7 @@ namespace Arb.Core.Infrastructure.External.Polymarket
 
                     if (parsed.Count == 0)
                     {
-                        _logger.LogWarning(
+                        _logger.LogDebug(
                             "Polymarket CLOB midpoint returned success but no parsed values. TokenCount={TokenCount} IsSingleToken={IsSingleToken} TokenIds={TokenIds} ResponseBody={ResponseBody}",
                             normalizedTokenIds.Length,
                             normalizedTokenIds.Length == 1,
@@ -267,7 +267,7 @@ namespace Arb.Core.Infrastructure.External.Polymarket
 
             if (tokenIds.Count > 1 && result.Count == 0)
             {
-                _logger.LogWarning(
+                _logger.LogDebug(
                     "Polymarket CLOB returned no parsed midpoints for multi-token request. TokenIds={TokenIds} Content={Content}",
                     string.Join(",", tokenIds),
                     content.Length > 1000 ? content[..1000] : content);
@@ -275,7 +275,7 @@ namespace Arb.Core.Infrastructure.External.Polymarket
 
             if (tokenIds.Count == 1 && result.Count == 0)
             {
-                _logger.LogWarning(
+                _logger.LogDebug(
                     "Polymarket CLOB returned no parsed midpoint for single-token request. TokenId={TokenId} Content={Content}",
                     tokenIds[0],
                     content.Length > 500 ? content[..500] : content);

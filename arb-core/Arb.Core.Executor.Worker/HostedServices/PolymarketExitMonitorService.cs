@@ -118,7 +118,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     .Take(10)
                     .ToArray();
 
-                _logger.LogInformation(
+                _logger.LogDebug(
                     "CLOB midpoints fetched. Requested={Requested} Returned={Returned} MissingSample={MissingSample}",
                     tokenIds.Count,
                     midPrices.Count,
@@ -221,7 +221,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
             {
                 var gapToTarget = comparableTargetProbability.Value - (double)currentMidPrice.Value;
 
-                _logger.LogInformation(
+                _logger.LogDebug(
                     "Early exit window evaluated. positionId={PositionId} team={Team} mid={Mid:F4} comparableTarget={ComparableTarget:F4} gapToTarget={GapToTarget:F4} requiredGap={RequiredGap:F4} timeToKickoff={TimeToKickoff}",
                     position.Id,
                     position.ObservedTeam,
@@ -256,7 +256,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     return;
                 }
 
-                _logger.LogInformation(
+                _logger.LogDebug(
                     "Early exit window reached but position kept open. positionId={PositionId} team={Team} gapToTarget={GapToTarget:F4} requiredGap={RequiredGap:F4} timeToKickoff={TimeToKickoff}",
                     position.Id,
                     position.ObservedTeam,
