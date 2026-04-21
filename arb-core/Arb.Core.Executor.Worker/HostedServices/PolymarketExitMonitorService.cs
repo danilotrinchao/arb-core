@@ -214,33 +214,66 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     ct: ct);
                 return;
             }
-
             if (earlyExitWindowReached &&
                 currentMidPrice.HasValue &&
                 comparableTargetProbability.HasValue)
             {
-                var gapToTarget = comparableTargetProbability.Value - (double)currentMidPrice.Value;
+                var currentMid = (double)currentMidPrice.Value;
+                var gapToTarget = comparableTargetProbability.Value - currentMid;
+                var priceMoveSinceEntry = currentMid - entryForConvergence;
 
-                _logger.LogDebug(
-                    "Early exit window evaluated. positionId={PositionId} team={Team} mid={Mid:F4} comparableTarget={ComparableTarget:F4} gapToTarget={GapToTarget:F4} requiredGap={RequiredGap:F4} timeToKickoff={TimeToKickoff}",
+                var isMeaningfullyAdverse =
+                    priceMoveSinceEntry <= -_settlementOptions.MinAdverseMoveToEarlyExit;
+
+                var isFlatAroundEntry =
+                    Math.Abs(priceMoveSinceEntry) <= _settlementOptions.FlatMoveToleranceForEarlyExit;
+
+                var isProtectedProfit =
+                    priceMoveSinceEntry >= _settlementOptions.ProtectProfitableMoveFromEarlyExit;
+
+                var isLateFlatWindow =
+                    timeToKickoff <= TimeSpan.FromMinutes(_settlementOptions.LateWindowMinutesForFlatEarlyExit);
+
+                var shouldEarlyExit =
+                    gapToTarget >= _settlementOptions.MinGapToTargetForEarlyExit &&
+                    (
+                        // 1) posição claramente se deteriorou
+                        isMeaningfullyAdverse
+
+                        // 2) posição está flat ou levemente positiva, mas já estamos perto demais do kickoff
+                        || (isLateFlatWindow && priceMoveSinceEntry <= _settlementOptions.FlatMoveToleranceForEarlyExit)
+                    ) &&
+
+                    // 3) proteção explícita para posições que já andaram bem desde a entrada
+                    !isProtectedProfit;
+
+                _logger.LogInformation(
+                    "Early exit evaluation. positionId={PositionId} team={Team} mid={Mid:F4} comparableTarget={ComparableTarget:F4} gapToTarget={GapToTarget:F4} entry={Entry:F4} priceMoveSinceEntry={PriceMoveSinceEntry:F4} adverse={IsAdverse} flat={IsFlat} protectedProfit={IsProtectedProfit} lateFlatWindow={IsLateFlatWindow} shouldEarlyExit={ShouldEarlyExit} timeToKickoff={TimeToKickoff}",
                     position.Id,
                     position.ObservedTeam,
-                    currentMidPrice.Value,
+                    currentMid,
                     comparableTargetProbability.Value,
                     gapToTarget,
-                    _settlementOptions.MinGapToTargetForEarlyExit,
+                    entryForConvergence,
+                    priceMoveSinceEntry,
+                    isMeaningfullyAdverse,
+                    isFlatAroundEntry,
+                    isProtectedProfit,
+                    isLateFlatWindow,
+                    shouldEarlyExit,
                     timeToKickoff.ToString(@"hh\:mm\:ss"));
 
-                if (gapToTarget >= _settlementOptions.MinGapToTargetForEarlyExit)
+                if (shouldEarlyExit)
                 {
                     _logger.LogInformation(
-                        "Early kickoff exit triggered. positionId={PositionId} team={Team} mid={Mid:F4} comparableTarget={ComparableTarget:F4} gapToTarget={GapToTarget:F4} earlyExitWindowMin={EarlyExitWindowMin} timeToKickoff={TimeToKickoff}",
+                        "Early kickoff exit triggered. positionId={PositionId} team={Team} mid={Mid:F4} comparableTarget={ComparableTarget:F4} gapToTarget={GapToTarget:F4} entry={Entry:F4} priceMoveSinceEntry={PriceMoveSinceEntry:F4} timeToKickoff={TimeToKickoff}",
                         position.Id,
                         position.ObservedTeam,
-                        currentMidPrice.Value,
+                        currentMid,
                         comparableTargetProbability.Value,
                         gapToTarget,
-                        _settlementOptions.MinutesBeforeKickoffToEarlyExit,
+                        entryForConvergence,
+                        priceMoveSinceEntry,
                         timeToKickoff.ToString(@"hh\:mm\:ss"));
 
                     await ClosePositionAsync(
@@ -255,14 +288,6 @@ namespace Arb.Core.Executor.Worker.HostedServices
                         ct: ct);
                     return;
                 }
-
-                _logger.LogDebug(
-                    "Early exit window reached but position kept open. positionId={PositionId} team={Team} gapToTarget={GapToTarget:F4} requiredGap={RequiredGap:F4} timeToKickoff={TimeToKickoff}",
-                    position.Id,
-                    position.ObservedTeam,
-                    gapToTarget,
-                    _settlementOptions.MinGapToTargetForEarlyExit,
-                    timeToKickoff.ToString(@"hh\:mm\:ss"));
             }
 
             if (kickoffWindowReached)
