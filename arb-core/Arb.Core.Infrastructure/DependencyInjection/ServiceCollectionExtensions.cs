@@ -21,11 +21,57 @@ namespace Arb.Core.Infrastructure.DependencyInjection
 {
     public static class ServiceCollectionExtensions
     {
+        /// <summary>
+        /// Looks up an environment variable by name, also checking for keys with trailing
+        /// whitespace — a known Railway dashboard issue where variable names can be saved
+        /// with accidental trailing spaces, preventing normal config binding.
+        /// </summary>
+        private static string? GetEnvVar(string name)
+        {
+            var value = Environment.GetEnvironmentVariable(name);
+            if (value is not null)
+                return value;
+
+            // Scan all env vars and match after trimming the key, to handle trailing-space names.
+            foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
+            {
+                if (entry.Key is string key && key.Trim() == name)
+                    return entry.Value?.ToString();
+            }
+
+            return null;
+        }
+
         public static IServiceCollection AddArbInfrastructure(
             this IServiceCollection services,
             IConfiguration config)
         {
-            services.Configure<RedisOptions>(config.GetSection(RedisOptions.SectionName));
+            // Resolve connection strings early, tolerating env var names with trailing spaces.
+            var postgresConnection =
+                GetEnvVar("Postgres__Connection") ??
+                GetEnvVar("Postgres__ConnectionString") ??
+                config["Postgres:Connection"] ??
+                config["Postgres:ConnectionString"];
+
+            var redisConnection =
+                GetEnvVar("Redis__Connection") ??
+                GetEnvVar("Redis__ConnectionString") ??
+                config["Redis:Connection"] ??
+                config["Redis:ConnectionString"];
+
+            var footballCatalogRedisConnection =
+                GetEnvVar("FootballCatalogRedis__ConnectionString") ??
+                GetEnvVar("FootballCatalogRedis__Connection") ??
+                config["FootballCatalogRedis:ConnectionString"] ??
+                config["FootballCatalogRedis:Connection"];
+
+            services.Configure<RedisOptions>(opts =>
+            {
+                var section = config.GetSection(RedisOptions.SectionName);
+                section.Bind(opts);
+                if (!string.IsNullOrWhiteSpace(redisConnection))
+                    opts.Connection = redisConnection;
+            });
             services.Configure<PostgresOptions>(config.GetSection(PostgresOptions.SectionName));
             services.Configure<StreamsOptions>(config.GetSection(StreamsOptions.SectionName));
             services.Configure<PolymarketObservationOptions>(
@@ -51,8 +97,7 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             services.AddSingleton<NpgsqlConnectionFactory>(sp =>
             {
                 var rawConnectionString =
-                    config["Postgres:Connection"] ??
-                    config["Postgres:ConnectionString"] ??
+                    postgresConnection ??
                     "Host=postgres.railway.internal;Port=5432;Database=railway;Username=postgres;Password=WfxqHNUYYncGjfOASkSBRAvByFSSoEdE";
 
                 var connectionString = ConvertPostgresUrl(rawConnectionString);
@@ -90,8 +135,13 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             services.AddSingleton<CreditBudgetService>();
             services.AddSingleton<SnapshotDedupService>();
 
-            services.Configure<FootballCatalogRedisOptions>(
-                config.GetSection(FootballCatalogRedisOptions.SectionName));
+            services.Configure<FootballCatalogRedisOptions>(opts =>
+            {
+                var section = config.GetSection(FootballCatalogRedisOptions.SectionName);
+                section.Bind(opts);
+                if (!string.IsNullOrWhiteSpace(footballCatalogRedisConnection))
+                    opts.ConnectionString = footballCatalogRedisConnection;
+            });
 
             services.AddSingleton<FootballCatalogRedisConnectionFactory>();
             services.AddSingleton<IFootballCatalogRedisRepository, FootballCatalogRedisRepository>();
