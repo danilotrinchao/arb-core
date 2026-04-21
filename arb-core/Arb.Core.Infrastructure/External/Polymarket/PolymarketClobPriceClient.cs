@@ -93,7 +93,7 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                         var body = await SafeReadBodyAsync(response, ct);
 
                         _logger.LogWarning(
-                            "Polymarket CLOB midpoint returned {StatusCode} for token request. TokenCount={TokenCount} IsSingleToken={IsSingleToken} TokenIds={TokenIds} ResponseBody={ResponseBody}. No retry.",
+                            "Polymarket CLOB midpoint returned {StatusCode} for token request. TokenCount={TokenCount} IsSingleToken={IsSingleToken} TokenIds={TokenIds} ResponseBody={ResponseBody}.No retry.",
                             (int)response.StatusCode,
                             normalizedTokenIds.Length,
                             normalizedTokenIds.Length == 1,
