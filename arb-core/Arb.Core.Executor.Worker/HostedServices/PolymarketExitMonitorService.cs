@@ -417,15 +417,15 @@ namespace Arb.Core.Executor.Worker.HostedServices
         }
 
         private async Task ClosePositionAsync(
-            OpenPositionForSettlement position,
-            decimal? closePrice,
-            string exitReason,
-            DateTime utcNow,
-            IPositionRepository positionRepo,
-            IServiceScope scope,
-            bool hadMissingMidpointAtClose,
-            bool usedLastKnownMidPriceFallback,
-            CancellationToken ct)
+    OpenPositionForSettlement position,
+    decimal? closePrice,
+    string exitReason,
+    DateTime utcNow,
+    IPositionRepository positionRepo,
+    IServiceScope scope,
+    bool hadMissingMidpointAtClose,
+    bool usedLastKnownMidPriceFallback,
+    CancellationToken ct)
         {
             double? pnl = null;
             var entryPrice = position.PolymarketEntryPrice ?? position.EntryPrice;
@@ -437,6 +437,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 pnl = Math.Round(pnl.Value, 4, MidpointRounding.AwayFromZero);
             }
 
+            // 1) Fecha a posição na tabela principal
             await positionRepo.CloseAsync(
                 positionId: position.Id,
                 pnl: pnl ?? 0,
@@ -445,6 +446,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 exitReason: exitReason,
                 ct: ct);
 
+            // 2) Atualiza o saldo
             var portfolioRepo = scope.ServiceProvider
                 .GetRequiredService<IPortfolioRepository>();
 
@@ -455,35 +457,8 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 await portfolioRepo.UpdateBalanceAsync(newBalance, utcNow, ct);
             }
 
-            var reportRepo = scope.ServiceProvider
-                .GetRequiredService<IExecutionReportRepository>();
-
-            var statusLabel = exitReason switch
-            {
-                ExitConverged => "SETTLED_CONVERGED",
-                ExitKickoffFallback => "SETTLED_KICKOFF",
-                ExitKickoffNoPrice => "SETTLED_NO_PRICE",
-                ExitExpiredNoClose => "SETTLED_EXPIRED",
-                ExitEarlyKickoffNoConvergence => "SETTLED_EARLY_KICKOFF_NO_CONVERGENCE",
-                _ => "SETTLED"
-            };
-
-            var report = new ExecutionReportV1(
-                SchemaVersion: "1.0.0",
-                ReportId: Guid.NewGuid().ToString("N"),
-                IntentId: position.IntentId.ToString("N"),
-                CorrelationId: $"{position.EventKey}|{position.SelectionKey}|{exitReason}",
-                Ts: utcNow,
-                Status: statusLabel,
-                FilledPrice: closePrice.HasValue ? (double)closePrice.Value : null,
-                FilledUsd: position.Stake,
-                TxHash: null,
-                Error: exitReason == ExitKickoffNoPrice || exitReason == ExitExpiredNoClose
-                    ? "No reliable price available at close time"
-                    : null);
-
-            await reportRepo.InsertAsync(report, ct);
-
+            // 3) Persiste analytics ANTES do report
+            // Isso garante que analytics exista mesmo se report falhar
             var analyticsRepo = scope.ServiceProvider
                 .GetRequiredService<IPositionAnalyticsRepository>();
 
@@ -517,6 +492,51 @@ namespace Arb.Core.Executor.Worker.HostedServices
             );
 
             await analyticsRepo.InsertClosureAnalyticsAsync(analytics, ct);
+
+            // 4) Report não pode bloquear analytics
+            try
+            {
+                var reportRepo = scope.ServiceProvider
+                    .GetRequiredService<IExecutionReportRepository>();
+
+                var statusLabel = exitReason switch
+                {
+                    ExitConverged => "SETTLED_CONVERGED",
+                    ExitKickoffFallback => "SETTLED_KICKOFF",
+                    ExitKickoffNoPrice => "SETTLED_NO_PRICE",
+                    ExitExpiredNoClose => "SETTLED_EXPIRED",
+
+                    // Encurtado para reduzir risco de limite de coluna
+                    ExitEarlyKickoffNoConvergence => "SETTLED_EARLY_KICKOFF",
+
+                    _ => "SETTLED"
+                };
+
+                var report = new ExecutionReportV1(
+                    SchemaVersion: "1.0.0",
+                    ReportId: Guid.NewGuid().ToString("N"),
+                    IntentId: position.IntentId.ToString("N"),
+                    CorrelationId: $"{position.EventKey}|{position.SelectionKey}|{exitReason}",
+                    Ts: utcNow,
+                    Status: statusLabel,
+                    FilledPrice: closePrice.HasValue ? (double)closePrice.Value : null,
+                    FilledUsd: position.Stake,
+                    TxHash: null,
+                    Error: exitReason == ExitKickoffNoPrice || exitReason == ExitExpiredNoClose
+                        ? "No reliable price available at close time"
+                        : null);
+
+                await reportRepo.InsertAsync(report, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Execution report insert failed after position close. positionId={PositionId} team={Team} exitReason={ExitReason}",
+                    position.Id,
+                    position.ObservedTeam,
+                    exitReason);
+            }
 
             _logger.LogInformation(
                 "Position closed. positionId={PositionId} team={Team} exitReason={ExitReason} entry={Entry:F4} close={Close} pnl={Pnl} stake={Stake}",
