@@ -3,6 +3,6 @@
     public class RedisOptions
     {
         public const string SectionName = "Redis";
-        public string Connection { get; init; } /*= "localhost:6379";*/
+        public string Connection { get; set; } /*= "localhost:6379";*/
     }
 }
