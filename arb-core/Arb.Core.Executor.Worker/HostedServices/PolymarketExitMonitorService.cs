@@ -145,7 +145,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     missingTokenIds.Length == 0 ? "none" : string.Join(",", missingTokenIds));
             }
 
-            var utcNow = DateTime.UtcNow;
+            //var utcNow = DateTime.UtcNow;
 
             foreach (var position in positions)
             {
