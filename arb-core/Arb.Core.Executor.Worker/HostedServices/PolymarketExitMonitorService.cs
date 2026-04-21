@@ -417,15 +417,15 @@ namespace Arb.Core.Executor.Worker.HostedServices
         }
 
         private async Task ClosePositionAsync(
-    OpenPositionForSettlement position,
-    decimal? closePrice,
-    string exitReason,
-    DateTime utcNow,
-    IPositionRepository positionRepo,
-    IServiceScope scope,
-    bool hadMissingMidpointAtClose,
-    bool usedLastKnownMidPriceFallback,
-    CancellationToken ct)
+        OpenPositionForSettlement position,
+        decimal? closePrice,
+        string exitReason,
+        DateTime utcNow,
+        IPositionRepository positionRepo,
+        IServiceScope scope,
+        bool hadMissingMidpointAtClose,
+        bool usedLastKnownMidPriceFallback,
+        CancellationToken ct)
         {
             double? pnl = null;
             var entryPrice = position.PolymarketEntryPrice ?? position.EntryPrice;
@@ -437,7 +437,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 pnl = Math.Round(pnl.Value, 4, MidpointRounding.AwayFromZero);
             }
 
-            // 1) Fecha a posição na tabela principal
+            // 1. Fecha a posição primeiro
             await positionRepo.CloseAsync(
                 positionId: position.Id,
                 pnl: pnl ?? 0,
@@ -446,7 +446,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 exitReason: exitReason,
                 ct: ct);
 
-            // 2) Atualiza o saldo
+            // 2. Atualiza o saldo
             var portfolioRepo = scope.ServiceProvider
                 .GetRequiredService<IPortfolioRepository>();
 
@@ -457,8 +457,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 await portfolioRepo.UpdateBalanceAsync(newBalance, utcNow, ct);
             }
 
-            // 3) Persiste analytics ANTES do report
-            // Isso garante que analytics exista mesmo se report falhar
+            // 3. Persiste analytics ANTES do report
             var analyticsRepo = scope.ServiceProvider
                 .GetRequiredService<IPositionAnalyticsRepository>();
 
@@ -493,7 +492,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
 
             await analyticsRepo.InsertClosureAnalyticsAsync(analytics, ct);
 
-            // 4) Report não pode bloquear analytics
+            // 4. Report não pode impedir analytics
             try
             {
                 var reportRepo = scope.ServiceProvider
@@ -505,10 +504,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     ExitKickoffFallback => "SETTLED_KICKOFF",
                     ExitKickoffNoPrice => "SETTLED_NO_PRICE",
                     ExitExpiredNoClose => "SETTLED_EXPIRED",
-
-                    // Encurtado para reduzir risco de limite de coluna
                     ExitEarlyKickoffNoConvergence => "SETTLED_EARLY_KICKOFF",
-
                     _ => "SETTLED"
                 };
 
