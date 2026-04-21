@@ -337,7 +337,7 @@ namespace Arb.Core.Executor.Worker
                                     rawPayload: payload,
                                     ct: stoppingToken);
 
-                                _logger.LogInformation(
+                                _logger.LogDebug(
                                     "Polymarket intent rejected. Reason=ENTRY_ALREADY_AT_OR_ABOVE_TARGET intentId={IntentId} team={Team} targetSide={TargetSide} entryMid={EntryMid:F4} comparableTarget={ComparableTarget:F4} deltaAboveTarget={DeltaAboveTarget:F4} tolerance={Tolerance:F4}",
                                     intent.IntentId,
                                     intent.ObservedTeam,
@@ -378,7 +378,7 @@ namespace Arb.Core.Executor.Worker
                                     rawPayload: payload,
                                     ct: stoppingToken);
 
-                                _logger.LogInformation(
+                                _logger.LogDebug(
                                     "Polymarket intent rejected. Reason=ENTRY_HEADROOM_BELOW_MINIMUM intentId={IntentId} team={Team} targetSide={TargetSide} entryMid={EntryMid:F4} comparableTarget={ComparableTarget:F4} headroom={Headroom:F4} minHeadroom={MinHeadroom:F4}",
                                     intent.IntentId,
                                     intent.ObservedTeam,
