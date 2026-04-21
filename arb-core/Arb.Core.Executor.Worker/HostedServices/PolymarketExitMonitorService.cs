@@ -89,12 +89,32 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 "PolymarketExitMonitor scanning {Count} open position(s)",
                 positions.Count);
 
-            var tokenIds = positions
+            var tokenHealthRepo = scope.ServiceProvider
+                .GetRequiredService<ITokenHealthRepository>();
+
+            var allTokenIds = positions
                 .Where(p => !string.IsNullOrWhiteSpace(p.TargetTokenId))
                 .Select(p => p.TargetTokenId!)
                 .Distinct()
                 .ToList();
 
+            var tokenIds = new List<string>();
+            var utcNow = DateTime.UtcNow;
+
+            foreach (var tokenId in allTokenIds)
+            {
+                var isBlocked = await tokenHealthRepo.IsBlockedAsync(tokenId, utcNow, ct);
+
+                if (isBlocked)
+                {
+                    _logger.LogWarning(
+                        "Skipping midpoint fetch for blocked token. tokenId={TokenId}",
+                        tokenId);
+                    continue;
+                }
+
+                tokenIds.Add(tokenId);
+            }
             IReadOnlyDictionary<string, decimal> midPrices =
                 new Dictionary<string, decimal>();
 

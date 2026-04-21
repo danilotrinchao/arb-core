@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Arb.Core.Application.Abstractions.Persistence;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Net;
 using System.Text.Json;
@@ -15,15 +17,18 @@ namespace Arb.Core.Infrastructure.External.Polymarket
         private readonly HttpClient _httpClient;
         private readonly PolymarketClobOptions _options;
         private readonly ILogger<PolymarketClobPriceClient> _logger;
+        private readonly IServiceScopeFactory _scopeFactory;
 
         public PolymarketClobPriceClient(
             HttpClient httpClient,
             IOptions<PolymarketClobOptions> options,
-            ILogger<PolymarketClobPriceClient> logger)
+            ILogger<PolymarketClobPriceClient> logger,
+            IServiceScopeFactory scopeFactory)
         {
             _httpClient = httpClient;
             _options = options.Value;
             _logger = logger;
+            _scopeFactory = scopeFactory;
 
             if (_httpClient.BaseAddress is null)
             {
@@ -88,17 +93,23 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                     using var response = await _httpClient.GetAsync(query, ct);
 
                     if (response.StatusCode == HttpStatusCode.BadRequest ||
-                        response.StatusCode == HttpStatusCode.NotFound)
+                     response.StatusCode == HttpStatusCode.NotFound)
                     {
                         var body = await SafeReadBodyAsync(response, ct);
 
                         _logger.LogWarning(
-                            "Polymarket CLOB midpoint returned {StatusCode} for token request. TokenCount={TokenCount} IsSingleToken={IsSingleToken} TokenIds={TokenIds} ResponseBody={ResponseBody}.No retry.",
+                            "Polymarket CLOB midpoint returned {StatusCode} for token request. TokenCount={TokenCount} IsSingleToken={IsSingleToken} TokenIds={TokenIds} ResponseBody={ResponseBody}. No retry.",
                             (int)response.StatusCode,
                             normalizedTokenIds.Length,
                             normalizedTokenIds.Length == 1,
                             string.Join(",", normalizedTokenIds),
                             body);
+
+                        if (response.StatusCode == HttpStatusCode.NotFound &&
+                            body.Contains("No orderbook exists", StringComparison.OrdinalIgnoreCase))
+                        {
+                            await MarkNoOrderbookAsync(normalizedTokenIds, response.StatusCode, body, ct);
+                        }
 
                         return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
                     }
@@ -156,6 +167,30 @@ namespace Arb.Core.Infrastructure.External.Polymarket
             }
 
             return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private async Task MarkNoOrderbookAsync(
+        IReadOnlyList<string> tokenIds,
+        HttpStatusCode statusCode,
+        string body,
+        CancellationToken ct)
+        {
+            var utcNow = DateTime.UtcNow;
+            var retryAfter = utcNow.AddHours(6);
+
+            using var scope = _scopeFactory.CreateScope();
+            var repo = scope.ServiceProvider.GetRequiredService<ITokenHealthRepository>();
+
+            foreach (var tokenId in tokenIds)
+            {
+                await repo.UpsertNoOrderbookAsync(
+                    tokenId: tokenId,
+                    httpStatus: (int)statusCode,
+                    responseBody: body,
+                    utcNow: utcNow,
+                    retryAfter: retryAfter,
+                    ct: ct);
+            }
         }
 
         private static string BuildMidpointQuery(IReadOnlyList<string> tokenIds)

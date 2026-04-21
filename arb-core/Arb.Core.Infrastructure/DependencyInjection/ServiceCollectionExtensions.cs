@@ -114,7 +114,7 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             services.AddScoped<IPortfolioRepository, PortfolioRepository>();
             services.AddScoped<IPositionRepository, PositionRepository>();
             services.AddScoped<IPositionAnalyticsRepository, PositionAnalyticsRepository>();
-
+            services.AddScoped<ITokenHealthRepository, TokenHealthRepository>();
             services.Configure<TheOddsApiOptions>(config.GetSection(TheOddsApiOptions.SectionName));
 
             services.AddHttpClient<TheOddsApiClient>((sp, client) =>
