@@ -23,7 +23,7 @@
 
         // Movimento adverso mínimo versus entrada para classificar posição como "adverse"
         // Ex.: -0.01 = preço caiu 1 ponto percentual
-        public double MinAdverseMoveToEarlyExit { get; init; } = 0.01d;
+        public double MinAdverseMoveToEarlyExit { get; init; } = 0.04d;
 
         // Faixa neutra/flat perto da entrada
         // Ex.: 0.005 = até meio ponto percentual para cima/baixo ainda é flat
