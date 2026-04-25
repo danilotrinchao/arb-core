@@ -130,20 +130,34 @@ namespace Arb.Core.Infrastructure.DependencyInjection
                 client.BaseAddress = new Uri(options.BaseUrl);
                 client.Timeout = TimeSpan.FromSeconds(120);
             });
+            var executionMode = config["Executor:ExecutionMode"];
             var executionAdapterBaseUrl = config["ExecutionAdapter:BaseUrl"];
 
-            if (string.IsNullOrWhiteSpace(executionAdapterBaseUrl))
-                throw new InvalidOperationException("ExecutionAdapter:BaseUrl was not configured.");
+            var isRealExecutionMode =
+                string.Equals(executionMode, "Real", StringComparison.OrdinalIgnoreCase);
 
-            if (!Uri.TryCreate(executionAdapterBaseUrl, UriKind.Absolute, out var executionAdapterUri))
-                throw new InvalidOperationException(
-                    $"ExecutionAdapter:BaseUrl is invalid: '{executionAdapterBaseUrl}'.");
+            Uri? parsedExecutionAdapterUri = null;
 
-            //services.AddHttpClient<IExecutionGateway, HttpExecutionGateway>(client =>
-            //{
-            //    client.BaseAddress = executionAdapterUri;
-            //    client.Timeout = TimeSpan.FromSeconds(15);
-            //});
+            if (!string.IsNullOrWhiteSpace(executionAdapterBaseUrl))
+            {
+                if (Uri.TryCreate(executionAdapterBaseUrl, UriKind.Absolute, out var uri))
+                {
+                    parsedExecutionAdapterUri = uri;
+                }
+            }
+
+            if (isRealExecutionMode && parsedExecutionAdapterUri is not null)
+            {
+                services.AddHttpClient<IExecutionGateway, HttpExecutionGateway>(client =>
+                {
+                    client.BaseAddress = parsedExecutionAdapterUri;
+                    client.Timeout = TimeSpan.FromSeconds(15);
+                });
+            }
+            else
+            {
+                services.AddScoped<IExecutionGateway, StubExecutionGateway>();
+            }
             services.AddScoped<IMarketOddsProvider, TheOddsApiProvider>();
             services.AddScoped<IScoreProvider, TheOddsApiScoreProvider>();
 
