@@ -30,7 +30,16 @@ builder.Services.AddHttpClient<PolymarketClobPriceClient>((sp, client) =>
         "User-Agent", "ArbBot/1.0");
 });
 builder.Services.AddHostedService<PolymarketExitMonitorService>();
-builder.Services.AddHostedService<ExecutionReconciliationWorker>();
+var executionMode = builder.Configuration["Executor:ExecutionMode"];
+if (string.Equals(executionMode, "Real", StringComparison.OrdinalIgnoreCase))
+{
+    builder.Services.AddHostedService<ExecutionReconciliationWorker>();
+    Console.WriteLine("ExecutionReconciliationWorker enabled because ExecutionMode=Real.");
+}
+else
+{
+    Console.WriteLine($"ExecutionReconciliationWorker disabled because ExecutionMode={executionMode ?? "null"}.");
+}
 
 var host = builder.Build();
 using (var scope = host.Services.CreateScope())

@@ -37,11 +37,11 @@
             CancellationToken ct);
 
         Task MarkMaterializedAsync(
-         Guid requestId,
-         string materializedPositionId,
-         DateTime materializedAt,
-         DateTime lastReconciliationAt,
-         CancellationToken ct);
+            Guid requestId,
+            string materializedPositionId,
+            DateTime materializedAt,
+            DateTime lastReconciliationAt,
+            CancellationToken ct);
 
         Task MarkReconciledAsync(
             Guid requestId,
@@ -49,28 +49,29 @@
             CancellationToken ct);
     }
 
-    public record ExecutionRequestRecord(
-     Guid Id,
-     Guid? IntentId,
-     string? PositionId,
-     string Action,
-     string TokenId,
-     string? MarketConditionId,
-     string Side,
-     double LimitPrice,
-     double RequestedSizeUsd,
-     string Status,
-     string CorrelationId,
-     string? ExternalOrderId,
-     string? ErrorCode,
-     string? ErrorMessage,
-     DateTime CreatedAt,
-     DateTime? SentAt,
-     DateTime UpdatedAt,
-     string RawRequest,
-     string? RawResponse,
-     string? MaterializedPositionId,
-     DateTime? MaterializedAt,
-     DateTime? LastReconciliationAt
-     );
+    public class ExecutionRequestRecord
+    {
+        public Guid Id { get; set; }
+        public Guid? IntentId { get; set; }
+        public string? PositionId { get; set; }
+        public string Action { get; set; } = string.Empty;
+        public string TokenId { get; set; } = string.Empty;
+        public string? MarketConditionId { get; set; }
+        public string Side { get; set; } = string.Empty;
+        public double LimitPrice { get; set; }
+        public double RequestedSizeUsd { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public string CorrelationId { get; set; } = string.Empty;
+        public string? ExternalOrderId { get; set; }
+        public string? ErrorCode { get; set; }
+        public string? ErrorMessage { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime? SentAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
+        public string RawRequest { get; set; } = string.Empty;
+        public string? RawResponse { get; set; }
+        public string? MaterializedPositionId { get; set; }
+        public DateTime? MaterializedAt { get; set; }
+        public DateTime? LastReconciliationAt { get; set; }
+    }
 }

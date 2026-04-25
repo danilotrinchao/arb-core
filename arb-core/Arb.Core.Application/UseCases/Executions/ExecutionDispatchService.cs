@@ -38,31 +38,31 @@ namespace Arb.Core.Application.Services
         {
             var utcNow = DateTime.UtcNow;
 
-            var request = new ExecutionRequestRecord(
-                 Id: command.RequestId,
-                 IntentId: command.IntentId,
-                 PositionId: command.PositionId?.ToString(),
-                 Action: isBuy ? "BUY" : "SELL",
-                 TokenId: command.TokenId,
-                 MarketConditionId: command.MarketConditionId,
-                 Side: command.Side,
-                 LimitPrice: command.Price,
-                 RequestedSizeUsd: command.SizeUsd,
-                 Status: "PENDING_DISPATCH",
-                 CorrelationId: command.CorrelationId,
-                 ExternalOrderId: null,
-                 ErrorCode: null,
-                 ErrorMessage: null,
-                 CreatedAt: utcNow,
-                 SentAt: null,
-                 UpdatedAt: utcNow,
-                 RawRequest: JsonSerializer.Serialize(command),
-                 RawResponse: null,
-                 MaterializedPositionId: null,
-                 MaterializedAt: null,
-                 LastReconciliationAt: null
-             );
-
+            var request = new ExecutionRequestRecord
+            {
+                Id = command.RequestId,
+                IntentId = command.IntentId,
+                PositionId = command.PositionId?.ToString(),
+                Action = isBuy ? "BUY" : "SELL",
+                TokenId = command.TokenId,
+                MarketConditionId = command.MarketConditionId,
+                Side = command.Side,
+                LimitPrice = command.Price,
+                RequestedSizeUsd = command.SizeUsd,
+                Status = "PENDING_DISPATCH",
+                CorrelationId = command.CorrelationId,
+                ExternalOrderId = null,
+                ErrorCode = null,
+                ErrorMessage = null,
+                CreatedAt = utcNow,
+                SentAt = null,
+                UpdatedAt = utcNow,
+                RawRequest = JsonSerializer.Serialize(command),
+                RawResponse = null,
+                MaterializedPositionId = null,
+                MaterializedAt = null,
+                LastReconciliationAt = null
+            };
             await _executionRequestRepository.InsertAsync(request, ct);
 
             await _executionRequestRepository.MarkDispatchedAsync(
