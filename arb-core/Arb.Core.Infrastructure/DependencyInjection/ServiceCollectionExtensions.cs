@@ -139,11 +139,11 @@ namespace Arb.Core.Infrastructure.DependencyInjection
                 throw new InvalidOperationException(
                     $"ExecutionAdapter:BaseUrl is invalid: '{executionAdapterBaseUrl}'.");
 
-            services.AddHttpClient<IExecutionGateway, HttpExecutionGateway>(client =>
-            {
-                client.BaseAddress = executionAdapterUri;
-                client.Timeout = TimeSpan.FromSeconds(15);
-            });
+            //services.AddHttpClient<IExecutionGateway, HttpExecutionGateway>(client =>
+            //{
+            //    client.BaseAddress = executionAdapterUri;
+            //    client.Timeout = TimeSpan.FromSeconds(15);
+            //});
             services.AddScoped<IMarketOddsProvider, TheOddsApiProvider>();
             services.AddScoped<IScoreProvider, TheOddsApiScoreProvider>();
 
