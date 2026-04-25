@@ -135,9 +135,13 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             if (string.IsNullOrWhiteSpace(executionAdapterBaseUrl))
                 throw new InvalidOperationException("ExecutionAdapter:BaseUrl was not configured.");
 
+            if (!Uri.TryCreate(executionAdapterBaseUrl, UriKind.Absolute, out var executionAdapterUri))
+                throw new InvalidOperationException(
+                    $"ExecutionAdapter:BaseUrl is invalid: '{executionAdapterBaseUrl}'.");
+
             services.AddHttpClient<IExecutionGateway, HttpExecutionGateway>(client =>
             {
-                client.BaseAddress = new Uri(executionAdapterBaseUrl);
+                client.BaseAddress = executionAdapterUri;
                 client.Timeout = TimeSpan.FromSeconds(15);
             });
             services.AddScoped<IMarketOddsProvider, TheOddsApiProvider>();
