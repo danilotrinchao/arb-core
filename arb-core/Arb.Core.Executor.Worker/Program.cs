@@ -30,6 +30,7 @@ builder.Services.AddHttpClient<PolymarketClobPriceClient>((sp, client) =>
         "User-Agent", "ArbBot/1.0");
 });
 builder.Services.AddHostedService<PolymarketExitMonitorService>();
+builder.Services.AddHostedService<ExecutionReconciliationWorker>();
 
 var host = builder.Build();
 using (var scope = host.Services.CreateScope())

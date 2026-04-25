@@ -1,6 +1,6 @@
-﻿using Arb.Core.Application.Abstractions.Messaging;
+﻿using Arb.Core.Application.Abstractions.Execution;
+using Arb.Core.Application.Abstractions.Messaging;
 using Arb.Core.Application.Abstractions.Persistence;
-using Arb.Core.Application.Abstractions.Settlement;
 using Arb.Core.Contracts.Common.PolimarketSignals;
 using Arb.Core.Contracts.Events;
 using Arb.Core.Executor.Worker.Options;
@@ -19,8 +19,6 @@ namespace Arb.Core.Executor.Worker
         private const string PolymarketConsumerName = "executor-polymarket-1";
         private const string PolymarketMarketType = "TEAM_TO_WIN_YES_NO";
         private const double MinHeadroomToTargetToOpen = 0.010d;
-
-        // Novo: tolerância conservadora para casos quase no alvo
         private const double MaxAboveTargetToleranceToOpen = 0.005d;
 
         private readonly ILogger<Worker> _logger;
@@ -28,6 +26,7 @@ namespace Arb.Core.Executor.Worker
         private readonly IStreamPublisher _publisher;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly PolymarketClobPriceClient _clobPriceClient;
+        private readonly IExecutionDispatchService _executionDispatchService;
         private readonly StreamsOptions _streams;
         private readonly ExecutorOptions _executorOptions;
         private readonly SettlementOptions _settlement;
@@ -44,6 +43,7 @@ namespace Arb.Core.Executor.Worker
             IStreamPublisher publisher,
             IServiceScopeFactory scopeFactory,
             PolymarketClobPriceClient clobPriceClient,
+            IExecutionDispatchService executionDispatchService,
             IOptions<StreamsOptions> streamsOptions,
             IOptions<ExecutorOptions> executorOptions,
             IOptions<SettlementOptions> settlementOptions,
@@ -54,6 +54,7 @@ namespace Arb.Core.Executor.Worker
             _publisher = publisher;
             _scopeFactory = scopeFactory;
             _clobPriceClient = clobPriceClient;
+            _executionDispatchService = executionDispatchService;
             _streams = streamsOptions.Value;
             _executorOptions = executorOptions.Value;
             _settlement = settlementOptions.Value;
@@ -78,9 +79,11 @@ namespace Arb.Core.Executor.Worker
             }
 
             _logger.LogInformation(
-                "Executor started. PolymarketConsuming={Stream} FixedStake={Stake}",
+                "Executor started. PolymarketConsuming={Stream} FixedStake={Stake} ExecutionMode={ExecutionMode}",
                 _streams.PolymarketOrderIntents,
-                _risk.PolymarketFixedStakeUsd);
+                _risk.PolymarketFixedStakeUsd,
+                _executorOptions.ExecutionMode);
+
             _logger.LogInformation(
                 "PolymarketExitMonitor started. Interval={Interval}s KickoffWindow={KickoffWindow}min EarlyExitWindow={EarlyExitWindow}min MinGapToTargetForEarlyExit={MinGap} MaxPriceAge={MaxAge}min",
                 _settlement.ExitMonitorIntervalSeconds,
@@ -179,6 +182,8 @@ namespace Arb.Core.Executor.Worker
                             .GetRequiredService<IOrderIntentRepository>();
                         var rejectionRepo = scope.ServiceProvider
                             .GetRequiredService<IOrderIntentRejectionRepository>();
+                        var tokenHealthRepo = scope.ServiceProvider
+                            .GetRequiredService<ITokenHealthRepository>();
 
                         await PersistOrderIntentAsync(intent, orderIntentRepo, stoppingToken);
 
@@ -275,6 +280,38 @@ namespace Arb.Core.Executor.Worker
                             continue;
                         }
 
+                        if (!string.IsNullOrWhiteSpace(intent.TargetTokenId))
+                        {
+                            var isBlocked = await tokenHealthRepo.IsBlockedAsync(
+                                intent.TargetTokenId,
+                                utcNow,
+                                stoppingToken);
+
+                            if (isBlocked)
+                            {
+                                await PersistRejectionAsync(
+                                    rejectionRepo,
+                                    intent,
+                                    reason: "TOKEN_NO_ORDERBOOK_404",
+                                    entryMid: null,
+                                    comparableTarget: null,
+                                    rawTargetProbability: (double)intent.TargetProbability,
+                                    headroomToTarget: null,
+                                    timeToKickoffSeconds: timeToKickoff.TotalSeconds,
+                                    intentGeneratedAt: intentGeneratedAt,
+                                    intentAgeSeconds: intentAgeSeconds,
+                                    rawPayload: payload,
+                                    ct: stoppingToken);
+
+                                await _consumer.AckAsync(
+                                    _streams.PolymarketOrderIntents,
+                                    PolymarketGroupName,
+                                    msg.Id,
+                                    stoppingToken);
+                                continue;
+                            }
+                        }
+
                         double? polymarketEntryPrice = null;
 
                         if (!string.IsNullOrWhiteSpace(intent.TargetTokenId))
@@ -315,7 +352,6 @@ namespace Arb.Core.Executor.Worker
 
                         var comparableTargetProbability = GetComparableTargetProbability(intent);
 
-                        // Novo tratamento: tolerar pequeno excesso acima do target
                         if (comparableTargetProbability.HasValue)
                         {
                             var deltaAboveTarget =
@@ -432,6 +468,89 @@ namespace Arb.Core.Executor.Worker
                             continue;
                         }
 
+                        if (IsRealExecutionMode())
+                        {
+                            var executionCommand = new ExecutionCommandDto
+                            {
+                                RequestId = Guid.NewGuid(),
+                                IntentId = Guid.TryParse(intent.IntentId, out var parsedIntentId)
+                                    ? parsedIntentId
+                                    : null,
+                                PositionId = null,
+                                TokenId = intent.TargetTokenId ?? string.Empty,
+                                MarketConditionId = intent.PolymarketConditionId,
+                                Side = "BUY",
+                                Price = polymarketEntryPrice.Value,
+                                SizeUsd = effectiveStake,
+                                TimeInForce = "GTC",
+                                CorrelationId = $"{intent.ObservedEventId}|{intent.SelectionKey}|{intent.TargetSide}",
+                                Metadata = new Dictionary<string, object>
+                                {
+                                    ["sportKey"] = intent.SportKey ?? "soccer",
+                                    ["eventKey"] = intent.ObservedEventId,
+                                    ["observedTeam"] = intent.ObservedTeam ?? string.Empty,
+                                    ["selectionKey"] = intent.SelectionKey,
+                                    ["targetSide"] = intent.TargetSide ?? string.Empty,
+                                    ["reason"] = "ENTRY_SIGNAL",
+                                    ["rawIntentId"] = intent.IntentId,
+                                    ["commenceTime"] = commenceTime.ToString("O"),
+                                    ["targetProbability"] = intent.TargetProbability
+                                }
+                            };
+
+                            var executionResponse = await _executionDispatchService.DispatchBuyAsync(
+                                executionCommand,
+                                stoppingToken);
+
+                            if (!executionResponse.Success)
+                            {
+                                await PersistRejectionAsync(
+                                    rejectionRepo,
+                                    intent,
+                                    reason: $"EXECUTION_{executionResponse.Status}",
+                                    entryMid: polymarketEntryPrice,
+                                    comparableTarget: comparableTargetProbability,
+                                    rawTargetProbability: (double)intent.TargetProbability,
+                                    headroomToTarget: comparableTargetProbability.HasValue
+                                        ? comparableTargetProbability.Value - polymarketEntryPrice.Value
+                                        : null,
+                                    timeToKickoffSeconds: timeToKickoff.TotalSeconds,
+                                    intentGeneratedAt: intentGeneratedAt,
+                                    intentAgeSeconds: intentAgeSeconds,
+                                    rawPayload: payload,
+                                    ct: stoppingToken);
+
+                                _logger.LogWarning(
+                                    "Execution dispatch failed/rejected. intentId={IntentId} requestId={RequestId} status={Status} errorCode={ErrorCode} errorMessage={ErrorMessage}",
+                                    intent.IntentId,
+                                    executionCommand.RequestId,
+                                    executionResponse.Status,
+                                    executionResponse.ErrorCode,
+                                    executionResponse.ErrorMessage);
+
+                                await _consumer.AckAsync(
+                                    _streams.PolymarketOrderIntents,
+                                    PolymarketGroupName,
+                                    msg.Id,
+                                    stoppingToken);
+                                continue;
+                            }
+
+                            _logger.LogInformation(
+                                "Execution accepted. intentId={IntentId} requestId={RequestId} externalOrderId={ExternalOrderId}",
+                                intent.IntentId,
+                                executionCommand.RequestId,
+                                executionResponse.ExternalOrderId);
+
+                            await _consumer.AckAsync(
+                                _streams.PolymarketOrderIntents,
+                                PolymarketGroupName,
+                                msg.Id,
+                                stoppingToken);
+                            continue;
+                        }
+
+                        // Modo PAPER: mantém comportamento atual
                         var positionId = await positionRepo.CreateOpenAsync(
                             new PositionOpen(
                                 IntentId: intent.IntentId,
@@ -508,6 +627,14 @@ namespace Arb.Core.Executor.Worker
                     }
                 }
             }
+        }
+
+        private bool IsRealExecutionMode()
+        {
+            return string.Equals(
+                _executorOptions.ExecutionMode,
+                "Real",
+                StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task PersistOrderIntentAsync(

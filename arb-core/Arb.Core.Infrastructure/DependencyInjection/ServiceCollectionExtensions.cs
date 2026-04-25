@@ -1,10 +1,13 @@
-﻿using Arb.Core.Application.Abstractions.MarketData;
+﻿using Arb.Core.Application.Abstractions.Execution;
+using Arb.Core.Application.Abstractions.MarketData;
 using Arb.Core.Application.Abstractions.Messaging;
 using Arb.Core.Application.Abstractions.Persistence;
 using Arb.Core.Application.Abstractions.Settlement;
 using Arb.Core.Application.Abstractions.Signals;
+using Arb.Core.Application.Services;
 using Arb.Core.Application.UseCases.MarketData;
 using Arb.Core.Application.UseCases.Signals;
+using Arb.Core.Infrastructure.External.Execution;
 using Arb.Core.Infrastructure.External.TheOddsApi;
 using Arb.Core.Infrastructure.Normalization;
 using Arb.Core.Infrastructure.Policies;
@@ -107,7 +110,8 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             });
 
             services.AddSingleton<DbInitializer>();
-
+            services.AddScoped<IExecutionRequestRepository, ExecutionRequestRepository>();
+            services.AddScoped<IExecutionFillRepository, ExecutionFillRepository>();
             services.AddScoped<IOrderIntentRepository, OrderIntentRepository>();
             services.AddScoped<IOrderIntentRejectionRepository, OrderIntentRejectionRepository>();
             services.AddScoped<IExecutionReportRepository, ExecutionReportRepository>();
@@ -126,7 +130,16 @@ namespace Arb.Core.Infrastructure.DependencyInjection
                 client.BaseAddress = new Uri(options.BaseUrl);
                 client.Timeout = TimeSpan.FromSeconds(120);
             });
+            var executionAdapterBaseUrl = config["ExecutionAdapter:BaseUrl"];
 
+            if (string.IsNullOrWhiteSpace(executionAdapterBaseUrl))
+                throw new InvalidOperationException("ExecutionAdapter:BaseUrl was not configured.");
+
+            services.AddHttpClient<IExecutionGateway, HttpExecutionGateway>(client =>
+            {
+                client.BaseAddress = new Uri(executionAdapterBaseUrl);
+                client.Timeout = TimeSpan.FromSeconds(15);
+            });
             services.AddScoped<IMarketOddsProvider, TheOddsApiProvider>();
             services.AddScoped<IScoreProvider, TheOddsApiScoreProvider>();
 
@@ -151,6 +164,7 @@ namespace Arb.Core.Infrastructure.DependencyInjection
             services.AddSingleton<RefreshFootballCatalogSnapshotUseCase>();
 
             services.AddSingleton<IPolymarketObservedSignalEngine, PolymarketObservedSignalEngine>();
+            services.AddScoped<IExecutionDispatchService, ExecutionDispatchService>();
 
             return services;
         }
