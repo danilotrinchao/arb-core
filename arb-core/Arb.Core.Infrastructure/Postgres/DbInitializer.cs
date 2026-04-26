@@ -37,23 +37,25 @@ namespace Arb.Core.Infrastructure.Postgres
             );
 
             CREATE TABLE IF NOT EXISTS order_intent_rejections (
-                id                      UUID PRIMARY KEY,
-                intent_id               TEXT NOT NULL,
-                sport_key               VARCHAR(100) NOT NULL,
-                observed_team           VARCHAR(200) NOT NULL,
-                target_side             VARCHAR(20) NULL,
-                polymarket_condition_id VARCHAR(200) NULL,
-                target_token_id         VARCHAR(200) NULL,
-                reason                  VARCHAR(100) NOT NULL,
-                entry_mid               DOUBLE PRECISION NULL,
-                comparable_target       DOUBLE PRECISION NULL,
-                raw_target_probability  DOUBLE PRECISION NULL,
-                headroom_to_target      DOUBLE PRECISION NULL,
-                time_to_kickoff_seconds DOUBLE PRECISION NULL,
-                intent_generated_at     TIMESTAMPTZ NULL,
-                intent_age_seconds      DOUBLE PRECISION NULL,
-                created_at              TIMESTAMPTZ NOT NULL,
-                raw_payload             JSONB NOT NULL
+                id                          UUID PRIMARY KEY,
+                intent_id                   TEXT NOT NULL,
+                sport_key                   VARCHAR(100) NOT NULL,
+                observed_team               VARCHAR(200) NOT NULL,
+                target_side                 VARCHAR(20) NULL,
+                polymarket_condition_id     VARCHAR(200) NULL,
+                target_token_id             VARCHAR(200) NULL,
+                reason                      VARCHAR(100) NOT NULL,
+                entry_mid                   DOUBLE PRECISION NULL,
+                comparable_target           DOUBLE PRECISION NULL,
+                raw_target_probability      DOUBLE PRECISION NULL,
+                headroom_to_target          DOUBLE PRECISION NULL,
+                initial_edge                DOUBLE PRECISION NULL,
+                delta_vs_comparable_target  DOUBLE PRECISION NULL,
+                time_to_kickoff_seconds     DOUBLE PRECISION NULL,
+                intent_generated_at         TIMESTAMPTZ NULL,
+                intent_age_seconds          DOUBLE PRECISION NULL,
+                created_at                  TIMESTAMPTZ NOT NULL,
+                raw_payload                 JSONB NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS execution_reports (
@@ -147,25 +149,28 @@ namespace Arb.Core.Infrastructure.Postgres
             );
 
             CREATE TABLE IF NOT EXISTS execution_requests (
-                id                  UUID PRIMARY KEY,
-                intent_id           UUID NULL,
-                position_id         TEXT NULL,
-                action              VARCHAR(20) NOT NULL,
-                token_id            VARCHAR(200) NOT NULL,
-                market_condition_id VARCHAR(200) NULL,
-                side                VARCHAR(20) NOT NULL,
-                limit_price         DOUBLE PRECISION NOT NULL,
-                requested_size_usd  DOUBLE PRECISION NOT NULL,
-                status              VARCHAR(30) NOT NULL,
-                correlation_id      TEXT NOT NULL,
-                external_order_id   TEXT NULL,
-                error_code          VARCHAR(100) NULL,
-                error_message       TEXT NULL,
-                created_at          TIMESTAMPTZ NOT NULL,
-                sent_at             TIMESTAMPTZ NULL,
-                updated_at          TIMESTAMPTZ NOT NULL,
-                raw_request         JSONB NOT NULL,
-                raw_response        JSONB NULL
+                id                      UUID PRIMARY KEY,
+                intent_id               UUID NULL,
+                position_id             TEXT NULL,
+                action                  VARCHAR(20) NOT NULL,
+                token_id                VARCHAR(200) NOT NULL,
+                market_condition_id     VARCHAR(200) NULL,
+                side                    VARCHAR(20) NOT NULL,
+                limit_price             DOUBLE PRECISION NOT NULL,
+                requested_size_usd      DOUBLE PRECISION NOT NULL,
+                status                  VARCHAR(30) NOT NULL,
+                correlation_id          TEXT NOT NULL,
+                external_order_id       TEXT NULL,
+                error_code              VARCHAR(100) NULL,
+                error_message           TEXT NULL,
+                created_at              TIMESTAMPTZ NOT NULL,
+                sent_at                 TIMESTAMPTZ NULL,
+                updated_at              TIMESTAMPTZ NOT NULL,
+                raw_request             JSONB NOT NULL,
+                raw_response            JSONB NULL,
+                materialized_position_id TEXT NULL,
+                materialized_at         TIMESTAMPTZ NULL,
+                last_reconciliation_at  TIMESTAMPTZ NULL
             );
 
             CREATE TABLE IF NOT EXISTS execution_fills (
@@ -181,17 +186,6 @@ namespace Arb.Core.Infrastructure.Postgres
                 raw_payload             JSONB NOT NULL
             );
 
-            ALTER TABLE execution_requests
-                ADD COLUMN IF NOT EXISTS materialized_position_id TEXT NULL;
-
-            ALTER TABLE execution_requests
-                ADD COLUMN IF NOT EXISTS materialized_at TIMESTAMPTZ NULL;
-
-            ALTER TABLE execution_requests
-                ADD COLUMN IF NOT EXISTS last_reconciliation_at TIMESTAMPTZ NULL;
-
-            CREATE INDEX IF NOT EXISTS ix_execution_requests_materialized_position_id
-                ON execution_requests(materialized_position_id);
             ALTER TABLE positions ADD COLUMN IF NOT EXISTS observed_team VARCHAR(200) NULL;
             ALTER TABLE positions ADD COLUMN IF NOT EXISTS polymarket_condition_id VARCHAR(200) NULL;
             ALTER TABLE positions ADD COLUMN IF NOT EXISTS polymarket_entry_price DOUBLE PRECISION NULL;
@@ -201,8 +195,16 @@ namespace Arb.Core.Infrastructure.Postgres
             ALTER TABLE positions ADD COLUMN IF NOT EXISTS last_price_checked_at TIMESTAMPTZ NULL;
             ALTER TABLE positions ADD COLUMN IF NOT EXISTS close_price DOUBLE PRECISION NULL;
             ALTER TABLE positions ADD COLUMN IF NOT EXISTS exit_reason VARCHAR(50) NULL;
+
             ALTER TABLE execution_requests
-            ADD COLUMN IF NOT EXISTS last_reconciliation_at TIMESTAMPTZ NULL;
+                ADD COLUMN IF NOT EXISTS materialized_position_id TEXT NULL;
+
+            ALTER TABLE execution_requests
+                ADD COLUMN IF NOT EXISTS materialized_at TIMESTAMPTZ NULL;
+
+            ALTER TABLE execution_requests
+                ADD COLUMN IF NOT EXISTS last_reconciliation_at TIMESTAMPTZ NULL;
+
             ALTER TABLE order_intent_rejections
                 ADD COLUMN IF NOT EXISTS raw_target_probability DOUBLE PRECISION NULL;
 
@@ -212,20 +214,32 @@ namespace Arb.Core.Infrastructure.Postgres
             ALTER TABLE order_intent_rejections
                 ADD COLUMN IF NOT EXISTS intent_age_seconds DOUBLE PRECISION NULL;
 
+            ALTER TABLE order_intent_rejections
+                ADD COLUMN IF NOT EXISTS initial_edge DOUBLE PRECISION NULL;
+
+            ALTER TABLE order_intent_rejections
+                ADD COLUMN IF NOT EXISTS delta_vs_comparable_target DOUBLE PRECISION NULL;
+
+            CREATE INDEX IF NOT EXISTS ix_execution_requests_materialized_position_id
+                ON execution_requests(materialized_position_id);
+
             CREATE INDEX IF NOT EXISTS ix_execution_requests_status
                 ON execution_requests(status);
-            
+
             CREATE INDEX IF NOT EXISTS ix_execution_requests_external_order_id
                 ON execution_requests(external_order_id);
-            
+
             CREATE INDEX IF NOT EXISTS ix_execution_requests_created_at
                 ON execution_requests(created_at);
-            
+
             CREATE INDEX IF NOT EXISTS ix_execution_fills_execution_request_id
                 ON execution_fills(execution_request_id);
-            
+
             CREATE INDEX IF NOT EXISTS ix_execution_fills_external_order_id
                 ON execution_fills(external_order_id);
+
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_execution_fills_external_fill_id
+                ON execution_fills(external_fill_id);
 
             CREATE UNIQUE INDEX IF NOT EXISTS uq_positions_intent_id
                 ON positions(intent_id);
@@ -288,8 +302,6 @@ namespace Arb.Core.Infrastructure.Postgres
 
             CREATE INDEX IF NOT EXISTS ix_polymarket_token_health_last_seen_at
                 ON polymarket_token_health(last_seen_at);
-             CREATE UNIQUE INDEX IF NOT EXISTS uq_execution_fills_external_fill_id
-                 ON execution_fills(external_fill_id);
             """;
 
             await conn.ExecuteAsync(sql);

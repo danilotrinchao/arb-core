@@ -18,6 +18,8 @@
         double? ComparableTarget,
         double? RawTargetProbability,
         double? HeadroomToTarget,
+        double? InitialEdge,
+        double? DeltaVsComparableTarget,
         double? TimeToKickoffSeconds,
         DateTime? IntentGeneratedAt,
         double? IntentAgeSeconds,

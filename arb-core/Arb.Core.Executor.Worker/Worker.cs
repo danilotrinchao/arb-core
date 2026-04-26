@@ -18,8 +18,6 @@ namespace Arb.Core.Executor.Worker
         private const string PolymarketGroupName = "executor-polymarket";
         private const string PolymarketConsumerName = "executor-polymarket-1";
         private const string PolymarketMarketType = "TEAM_TO_WIN_YES_NO";
-        private const double MinHeadroomToTargetToOpen = 0.010d;
-        private const double MaxAboveTargetToleranceToOpen = 0.005d;
 
         private readonly ILogger<Worker> _logger;
         private readonly IStreamConsumer _consumer;
@@ -31,6 +29,7 @@ namespace Arb.Core.Executor.Worker
         private readonly ExecutorOptions _executorOptions;
         private readonly SettlementOptions _settlement;
         private readonly RiskOptions _risk;
+        private readonly EntryQualityOptions _entryQuality;
 
         private static readonly JsonSerializerOptions JsonOpts = new()
         {
@@ -47,7 +46,8 @@ namespace Arb.Core.Executor.Worker
             IOptions<StreamsOptions> streamsOptions,
             IOptions<ExecutorOptions> executorOptions,
             IOptions<SettlementOptions> settlementOptions,
-            IOptions<RiskOptions> riskOptions)
+            IOptions<RiskOptions> riskOptions,
+            IOptions<EntryQualityOptions> entryQualityOptions)
         {
             _logger = logger;
             _consumer = consumer;
@@ -59,6 +59,7 @@ namespace Arb.Core.Executor.Worker
             _executorOptions = executorOptions.Value;
             _settlement = settlementOptions.Value;
             _risk = riskOptions.Value;
+            _entryQuality = entryQualityOptions.Value;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -91,6 +92,16 @@ namespace Arb.Core.Executor.Worker
                 _settlement.MinutesBeforeKickoffToEarlyExit,
                 _settlement.MinGapToTargetForEarlyExit,
                 _settlement.MaxPriceAgeMinutes);
+
+            _logger.LogInformation(
+                "EntryQuality policy loaded. MinInitialEdgeGlobal={MinInitialEdgeGlobal:F4} LongHorizonMinutes={LongHorizonMinutes} MinInitialEdgeLongHorizon={MinInitialEdgeLongHorizon:F4} MaxPositiveDeltaToComparableTargetGlobal={MaxPositiveDeltaGlobal:F4} MaxPositiveDeltaToComparableTargetLongHorizon={MaxPositiveDeltaLongHorizon:F4} LaLigaSportKey={LaLigaSportKey} LigueOneSportKey={LigueOneSportKey}",
+                _entryQuality.MinInitialEdgeGlobal,
+                _entryQuality.LongHorizonMinutes,
+                _entryQuality.MinInitialEdgeLongHorizon,
+                _entryQuality.MaxPositiveDeltaToComparableTargetGlobal,
+                _entryQuality.MaxPositiveDeltaToComparableTargetLongHorizon,
+                _entryQuality.LaLigaSportKey,
+                _entryQuality.LigueOneSportKey);
 
             await RunPolymarketExecutionLoopAsync(stoppingToken);
         }
@@ -210,6 +221,8 @@ namespace Arb.Core.Executor.Worker
                                 comparableTarget: null,
                                 rawTargetProbability: (double)intent.TargetProbability,
                                 headroomToTarget: null,
+                                initialEdge: null,
+                                deltaVsComparableTarget: null,
                                 timeToKickoffSeconds: null,
                                 intentGeneratedAt: intentGeneratedAt,
                                 intentAgeSeconds: intentAgeSeconds,
@@ -236,6 +249,8 @@ namespace Arb.Core.Executor.Worker
                                 comparableTarget: null,
                                 rawTargetProbability: (double)intent.TargetProbability,
                                 headroomToTarget: null,
+                                initialEdge: null,
+                                deltaVsComparableTarget: null,
                                 timeToKickoffSeconds: null,
                                 intentGeneratedAt: intentGeneratedAt,
                                 intentAgeSeconds: intentAgeSeconds,
@@ -251,10 +266,8 @@ namespace Arb.Core.Executor.Worker
                         }
 
                         var commenceTime = ResolveCommenceTime(intent, utcNow);
-
                         var timeToKickoff = commenceTime - utcNow;
-                        var kickoffWindow = TimeSpan.FromMinutes(
-                            _settlement.MinutesBeforeKickoffToClose);
+                        var kickoffWindow = TimeSpan.FromMinutes(_settlement.MinutesBeforeKickoffToClose);
 
                         if (timeToKickoff <= kickoffWindow)
                         {
@@ -266,6 +279,8 @@ namespace Arb.Core.Executor.Worker
                                 comparableTarget: null,
                                 rawTargetProbability: (double)intent.TargetProbability,
                                 headroomToTarget: null,
+                                initialEdge: null,
+                                deltaVsComparableTarget: null,
                                 timeToKickoffSeconds: timeToKickoff.TotalSeconds,
                                 intentGeneratedAt: intentGeneratedAt,
                                 intentAgeSeconds: intentAgeSeconds,
@@ -297,6 +312,8 @@ namespace Arb.Core.Executor.Worker
                                     comparableTarget: null,
                                     rawTargetProbability: (double)intent.TargetProbability,
                                     headroomToTarget: null,
+                                    initialEdge: null,
+                                    deltaVsComparableTarget: null,
                                     timeToKickoffSeconds: timeToKickoff.TotalSeconds,
                                     intentGeneratedAt: intentGeneratedAt,
                                     intentAgeSeconds: intentAgeSeconds,
@@ -336,6 +353,8 @@ namespace Arb.Core.Executor.Worker
                                 comparableTarget: null,
                                 rawTargetProbability: (double)intent.TargetProbability,
                                 headroomToTarget: null,
+                                initialEdge: null,
+                                deltaVsComparableTarget: null,
                                 timeToKickoffSeconds: timeToKickoff.TotalSeconds,
                                 intentGeneratedAt: intentGeneratedAt,
                                 intentAgeSeconds: intentAgeSeconds,
@@ -354,75 +373,45 @@ namespace Arb.Core.Executor.Worker
 
                         if (comparableTargetProbability.HasValue)
                         {
-                            var deltaAboveTarget =
-                                polymarketEntryPrice.Value - comparableTargetProbability.Value;
+                            var initialEdge = comparableTargetProbability.Value - polymarketEntryPrice.Value;
+                            var deltaVsComparableTarget = polymarketEntryPrice.Value - comparableTargetProbability.Value;
 
-                            if (deltaAboveTarget > MaxAboveTargetToleranceToOpen)
+                            var entryDecision = EvaluateEntryQuality(
+                                sportKey: intent.SportKey ?? "unknown",
+                                initialEdge: initialEdge,
+                                deltaVsComparableTarget: deltaVsComparableTarget,
+                                timeToKickoff: timeToKickoff);
+
+                            if (!entryDecision.Allow)
                             {
                                 await PersistRejectionAsync(
                                     rejectionRepo,
                                     intent,
-                                    reason: "ENTRY_ALREADY_AT_OR_ABOVE_TARGET",
+                                    reason: entryDecision.Reason,
                                     entryMid: polymarketEntryPrice,
                                     comparableTarget: comparableTargetProbability,
                                     rawTargetProbability: (double)intent.TargetProbability,
-                                    headroomToTarget: comparableTargetProbability - polymarketEntryPrice,
+                                    headroomToTarget: initialEdge,
+                                    initialEdge: initialEdge,
+                                    deltaVsComparableTarget: deltaVsComparableTarget,
                                     timeToKickoffSeconds: timeToKickoff.TotalSeconds,
                                     intentGeneratedAt: intentGeneratedAt,
                                     intentAgeSeconds: intentAgeSeconds,
                                     rawPayload: payload,
                                     ct: stoppingToken);
 
-                                _logger.LogDebug(
-                                    "Polymarket intent rejected. Reason=ENTRY_ALREADY_AT_OR_ABOVE_TARGET intentId={IntentId} team={Team} targetSide={TargetSide} entryMid={EntryMid:F4} comparableTarget={ComparableTarget:F4} deltaAboveTarget={DeltaAboveTarget:F4} tolerance={Tolerance:F4}",
+                                _logger.LogInformation(
+                                    "Entry rejected by quality policy. intentId={IntentId} sportKey={SportKey} team={Team} targetSide={TargetSide} comparableTarget={ComparableTarget:F4} polyEntry={PolyEntry:F4} initialEdge={InitialEdge:F4} deltaVsComparableTarget={DeltaVsComparableTarget:F4} timeToKickoff={TimeToKickoff} reason={Reason}",
                                     intent.IntentId,
+                                    intent.SportKey,
                                     intent.ObservedTeam,
                                     intent.TargetSide,
-                                    polymarketEntryPrice.Value,
                                     comparableTargetProbability.Value,
-                                    deltaAboveTarget,
-                                    MaxAboveTargetToleranceToOpen);
-
-                                await _consumer.AckAsync(
-                                    _streams.PolymarketOrderIntents,
-                                    PolymarketGroupName,
-                                    msg.Id,
-                                    stoppingToken);
-                                continue;
-                            }
-                        }
-
-                        if (comparableTargetProbability.HasValue)
-                        {
-                            var headroomToTarget =
-                                comparableTargetProbability.Value - polymarketEntryPrice.Value;
-
-                            if (headroomToTarget >= 0 &&
-                                headroomToTarget < MinHeadroomToTargetToOpen)
-                            {
-                                await PersistRejectionAsync(
-                                    rejectionRepo,
-                                    intent,
-                                    reason: "ENTRY_HEADROOM_BELOW_MINIMUM",
-                                    entryMid: polymarketEntryPrice,
-                                    comparableTarget: comparableTargetProbability,
-                                    rawTargetProbability: (double)intent.TargetProbability,
-                                    headroomToTarget: headroomToTarget,
-                                    timeToKickoffSeconds: timeToKickoff.TotalSeconds,
-                                    intentGeneratedAt: intentGeneratedAt,
-                                    intentAgeSeconds: intentAgeSeconds,
-                                    rawPayload: payload,
-                                    ct: stoppingToken);
-
-                                _logger.LogDebug(
-                                    "Polymarket intent rejected. Reason=ENTRY_HEADROOM_BELOW_MINIMUM intentId={IntentId} team={Team} targetSide={TargetSide} entryMid={EntryMid:F4} comparableTarget={ComparableTarget:F4} headroom={Headroom:F4} minHeadroom={MinHeadroom:F4}",
-                                    intent.IntentId,
-                                    intent.ObservedTeam,
-                                    intent.TargetSide,
                                     polymarketEntryPrice.Value,
-                                    comparableTargetProbability.Value,
-                                    headroomToTarget,
-                                    MinHeadroomToTargetToOpen);
+                                    initialEdge,
+                                    deltaVsComparableTarget,
+                                    timeToKickoff.ToString(@"dd\.hh\:mm\:ss"),
+                                    entryDecision.Reason);
 
                                 await _consumer.AckAsync(
                                     _streams.PolymarketOrderIntents,
@@ -443,6 +432,15 @@ namespace Arb.Core.Executor.Worker
 
                         if (hasDuplicateOpenPosition)
                         {
+                            double? initialEdge = null;
+                            double? deltaVsComparableTarget = null;
+
+                            if (comparableTargetProbability.HasValue && polymarketEntryPrice.HasValue)
+                            {
+                                initialEdge = comparableTargetProbability.Value - polymarketEntryPrice.Value;
+                                deltaVsComparableTarget = polymarketEntryPrice.Value - comparableTargetProbability.Value;
+                            }
+
                             await PersistRejectionAsync(
                                 rejectionRepo,
                                 intent,
@@ -450,9 +448,9 @@ namespace Arb.Core.Executor.Worker
                                 entryMid: polymarketEntryPrice,
                                 comparableTarget: comparableTargetProbability,
                                 rawTargetProbability: (double)intent.TargetProbability,
-                                headroomToTarget: comparableTargetProbability.HasValue && polymarketEntryPrice.HasValue
-                                    ? comparableTargetProbability.Value - polymarketEntryPrice.Value
-                                    : null,
+                                headroomToTarget: initialEdge,
+                                initialEdge: initialEdge,
+                                deltaVsComparableTarget: deltaVsComparableTarget,
                                 timeToKickoffSeconds: timeToKickoff.TotalSeconds,
                                 intentGeneratedAt: intentGeneratedAt,
                                 intentAgeSeconds: intentAgeSeconds,
@@ -470,6 +468,14 @@ namespace Arb.Core.Executor.Worker
 
                         if (IsRealExecutionMode())
                         {
+                            var initialEdge = comparableTargetProbability.HasValue
+                                ? comparableTargetProbability.Value - polymarketEntryPrice.Value
+                                : (double?)null;
+
+                            var deltaVsComparableTarget = comparableTargetProbability.HasValue
+                                ? polymarketEntryPrice.Value - comparableTargetProbability.Value
+                                : (double?)null;
+
                             var executionCommand = new ExecutionCommandDto
                             {
                                 RequestId = Guid.NewGuid(),
@@ -494,7 +500,10 @@ namespace Arb.Core.Executor.Worker
                                     ["reason"] = "ENTRY_SIGNAL",
                                     ["rawIntentId"] = intent.IntentId,
                                     ["commenceTime"] = commenceTime.ToString("O"),
-                                    ["targetProbability"] = intent.TargetProbability
+                                    ["targetProbability"] = intent.TargetProbability,
+                                    ["comparableTargetProbability"] = comparableTargetProbability?.ToString("F6", CultureInfo.InvariantCulture) ?? string.Empty,
+                                    ["initialEdge"] = initialEdge?.ToString("F6", CultureInfo.InvariantCulture) ?? string.Empty,
+                                    ["deltaVsComparableTarget"] = deltaVsComparableTarget?.ToString("F6", CultureInfo.InvariantCulture) ?? string.Empty
                                 }
                             };
 
@@ -511,9 +520,9 @@ namespace Arb.Core.Executor.Worker
                                     entryMid: polymarketEntryPrice,
                                     comparableTarget: comparableTargetProbability,
                                     rawTargetProbability: (double)intent.TargetProbability,
-                                    headroomToTarget: comparableTargetProbability.HasValue
-                                        ? comparableTargetProbability.Value - polymarketEntryPrice.Value
-                                        : null,
+                                    headroomToTarget: initialEdge,
+                                    initialEdge: initialEdge,
+                                    deltaVsComparableTarget: deltaVsComparableTarget,
                                     timeToKickoffSeconds: timeToKickoff.TotalSeconds,
                                     intentGeneratedAt: intentGeneratedAt,
                                     intentAgeSeconds: intentAgeSeconds,
@@ -550,7 +559,6 @@ namespace Arb.Core.Executor.Worker
                             continue;
                         }
 
-                        // Modo PAPER: mantém comportamento atual
                         var positionId = await positionRepo.CreateOpenAsync(
                             new PositionOpen(
                                 IntentId: intent.IntentId,
@@ -606,6 +614,24 @@ namespace Arb.Core.Executor.Worker
                             reportRepo,
                             stoppingToken);
 
+                        if (comparableTargetProbability.HasValue)
+                        {
+                            var initialEdge = comparableTargetProbability.Value - polymarketEntryPrice.Value;
+                            var deltaVsComparableTarget = polymarketEntryPrice.Value - comparableTargetProbability.Value;
+
+                            _logger.LogInformation(
+                                "Paper entry opened. intentId={IntentId} sportKey={SportKey} team={Team} targetSide={TargetSide} comparableTarget={ComparableTarget:F4} polyEntry={PolyEntry:F4} initialEdge={InitialEdge:F4} deltaVsComparableTarget={DeltaVsComparableTarget:F4} timeToKickoff={TimeToKickoff}",
+                                intent.IntentId,
+                                intent.SportKey,
+                                intent.ObservedTeam,
+                                intent.TargetSide,
+                                comparableTargetProbability.Value,
+                                polymarketEntryPrice.Value,
+                                initialEdge,
+                                deltaVsComparableTarget,
+                                timeToKickoff.ToString(@"dd\.hh\:mm\:ss"));
+                        }
+
                         await _consumer.AckAsync(
                             _streams.PolymarketOrderIntents,
                             PolymarketGroupName,
@@ -627,6 +653,105 @@ namespace Arb.Core.Executor.Worker
                     }
                 }
             }
+        }
+
+        private EntryDecision EvaluateEntryQuality(
+            string sportKey,
+            double initialEdge,
+            double deltaVsComparableTarget,
+            TimeSpan timeToKickoff)
+        {
+            var isLongHorizon = timeToKickoff > TimeSpan.FromMinutes(_entryQuality.LongHorizonMinutes);
+
+            var isLaLiga = string.Equals(
+                sportKey,
+                _entryQuality.LaLigaSportKey,
+                StringComparison.OrdinalIgnoreCase);
+
+            var isLigueOne = string.Equals(
+                sportKey,
+                _entryQuality.LigueOneSportKey,
+                StringComparison.OrdinalIgnoreCase);
+
+            if (isLaLiga && _entryQuality.RejectPositiveDeltaForLaLiga && deltaVsComparableTarget > 0)
+            {
+                return EntryDecision.Reject("LEAGUE_POSITIVE_DELTA_NOT_ALLOWED");
+            }
+
+            if (isLigueOne && _entryQuality.RejectPositiveDeltaForLigueOne && deltaVsComparableTarget > 0)
+            {
+                return EntryDecision.Reject("LEAGUE_POSITIVE_DELTA_NOT_ALLOWED");
+            }
+
+            if (deltaVsComparableTarget >= _entryQuality.MaxPositiveDeltaToComparableTargetGlobal)
+            {
+                return EntryDecision.Reject("DELTA_VS_COMPARABLE_TARGET_TOO_HIGH");
+            }
+
+            if (isLongHorizon &&
+                deltaVsComparableTarget >= _entryQuality.MaxPositiveDeltaToComparableTargetLongHorizon)
+            {
+                return EntryDecision.Reject("LONG_HORIZON_DELTA_VS_COMPARABLE_TARGET_TOO_HIGH");
+            }
+
+            var minRequiredEdge = _entryQuality.MinInitialEdgeGlobal;
+
+            if (isLongHorizon)
+            {
+                minRequiredEdge = Math.Max(
+                    minRequiredEdge,
+                    _entryQuality.MinInitialEdgeLongHorizon);
+            }
+
+            if (isLaLiga)
+            {
+                minRequiredEdge = Math.Max(
+                    minRequiredEdge,
+                    _entryQuality.LaLigaMinInitialEdgeGlobal);
+
+                if (isLongHorizon)
+                {
+                    minRequiredEdge = Math.Max(
+                        minRequiredEdge,
+                        _entryQuality.LaLigaMinInitialEdgeLongHorizon);
+                }
+            }
+
+            if (isLigueOne)
+            {
+                minRequiredEdge = Math.Max(
+                    minRequiredEdge,
+                    _entryQuality.LigueOneMinInitialEdgeGlobal);
+
+                if (isLongHorizon)
+                {
+                    minRequiredEdge = Math.Max(
+                        minRequiredEdge,
+                        _entryQuality.LigueOneMinInitialEdgeLongHorizon);
+                }
+            }
+
+            if (initialEdge < minRequiredEdge)
+            {
+                if (isLaLiga && isLongHorizon)
+                    return EntryDecision.Reject("LEAGUE_LONG_HORIZON_MIN_EDGE_NOT_MET");
+
+                if (isLaLiga)
+                    return EntryDecision.Reject("LEAGUE_MIN_EDGE_NOT_MET");
+
+                if (isLigueOne && isLongHorizon)
+                    return EntryDecision.Reject("LEAGUE_LONG_HORIZON_MIN_EDGE_NOT_MET");
+
+                if (isLigueOne)
+                    return EntryDecision.Reject("LEAGUE_MIN_EDGE_NOT_MET");
+
+                if (isLongHorizon)
+                    return EntryDecision.Reject("INITIAL_EDGE_BELOW_LONG_HORIZON_MINIMUM");
+
+                return EntryDecision.Reject("INITIAL_EDGE_BELOW_GLOBAL_MINIMUM");
+            }
+
+            return EntryDecision.AllowOpen();
         }
 
         private bool IsRealExecutionMode()
@@ -673,6 +798,8 @@ namespace Arb.Core.Executor.Worker
             double? comparableTarget,
             double? rawTargetProbability,
             double? headroomToTarget,
+            double? initialEdge,
+            double? deltaVsComparableTarget,
             double? timeToKickoffSeconds,
             DateTime? intentGeneratedAt,
             double? intentAgeSeconds,
@@ -692,6 +819,8 @@ namespace Arb.Core.Executor.Worker
                 ComparableTarget: comparableTarget,
                 RawTargetProbability: rawTargetProbability,
                 HeadroomToTarget: headroomToTarget,
+                InitialEdge: initialEdge,
+                DeltaVsComparableTarget: deltaVsComparableTarget,
                 TimeToKickoffSeconds: timeToKickoffSeconds,
                 IntentGeneratedAt: intentGeneratedAt,
                 IntentAgeSeconds: intentAgeSeconds,
@@ -840,6 +969,14 @@ namespace Arb.Core.Executor.Worker
             }
 
             return utcNow.AddHours(6);
+        }
+
+        private readonly record struct EntryDecision(
+            bool Allow,
+            string Reason)
+        {
+            public static EntryDecision AllowOpen() => new(true, string.Empty);
+            public static EntryDecision Reject(string reason) => new(false, reason);
         }
     }
 }
