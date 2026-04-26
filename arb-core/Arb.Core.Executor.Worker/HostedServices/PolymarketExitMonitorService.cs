@@ -4,6 +4,7 @@ using Arb.Core.Executor.Worker.Options;
 using Arb.Core.Infrastructure.External.Polymarket;
 using Arb.Core.Infrastructure.Redis;
 using Microsoft.Extensions.Options;
+using System.Collections.Concurrent;
 using System.Globalization;
 
 namespace Arb.Core.Executor.Worker.HostedServices
@@ -16,15 +17,19 @@ namespace Arb.Core.Executor.Worker.HostedServices
         private const string ExitExpiredNoClose = "EXPIRED_NO_CLOSE";
         private const string ExitEarlyKickoffNoConvergence = "EARLY_KICKOFF_EXIT_NO_CONVERGENCE";
 
-        // Só consideramos convergência válida se houver melhora mínima real
-        // sobre o preço de entrada na Polymarket
         private const double MinImprovementOverEntryToConverge = 0.02d;
+
+        // Persistência mínima do regime adverse
+        private const int RequiredAdverseCyclesToEarlyExit = 2;
 
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly PolymarketClobPriceClient _clobPriceClient;
         private readonly SettlementOptions _settlementOptions;
         private readonly StreamsOptions _streams;
         private readonly ILogger<PolymarketExitMonitorService> _logger;
+
+        // Guarda quantos ciclos consecutivos cada posição ficou adverse
+        private readonly ConcurrentDictionary<Guid, int> _adverseCycleCounts = new();
 
         public PolymarketExitMonitorService(
             IServiceScopeFactory scopeFactory,
@@ -115,6 +120,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
 
                 tokenIds.Add(tokenId);
             }
+
             IReadOnlyDictionary<string, decimal> midPrices =
                 new Dictionary<string, decimal>();
 
@@ -144,8 +150,6 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     midPrices.Count,
                     missingTokenIds.Length == 0 ? "none" : string.Join(",", missingTokenIds));
             }
-
-            //var utcNow = DateTime.UtcNow;
 
             foreach (var position in positions)
             {
@@ -210,6 +214,8 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 currentMidPrice.Value >= (decimal)comparableTargetProbability.Value &&
                 hasImprovedSinceEntry)
             {
+                ResetAdverseCycles(position.Id);
+
                 _logger.LogInformation(
                     "Convergence reached. positionId={PositionId} team={Team} mid={Mid:F4} comparableTarget={ComparableTarget:F4} requiredExit={RequiredExit:F4} rawTarget={RawTarget:F4} targetSide={TargetSide} entry={Entry} timeToKickoff={TimeToKickoff}",
                     position.Id,
@@ -234,21 +240,16 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     ct: ct);
                 return;
             }
+
             if (earlyExitWindowReached &&
-            currentMidPrice.HasValue &&
-            comparableTargetProbability.HasValue)
+                currentMidPrice.HasValue &&
+                comparableTargetProbability.HasValue)
             {
                 var currentMid = (double)currentMidPrice.Value;
                 var gapToTarget = comparableTargetProbability.Value - currentMid;
-
-                // Usa o preço real de entrada no Polymarket quando disponível
-                // Se não houver, cai para o entry usado hoje na lógica de convergência
                 var effectiveEntryPrice = position.PolymarketEntryPrice ?? entryForConvergence;
-
-                // Movimento da posição versus entrada real
                 var priceMoveSinceEntry = currentMid - effectiveEntryPrice;
 
-                // Classificação por regime
                 var isAdverse =
                     priceMoveSinceEntry <= -_settlementOptions.MinAdverseMoveToEarlyExit;
 
@@ -262,9 +263,10 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     priceMoveSinceEntry > _settlementOptions.FlatMoveToleranceForEarlyExit &&
                     priceMoveSinceEntry < _settlementOptions.ProtectProfitableMoveFromEarlyExit;
 
-                // Janelas por regime
+                var negativeWindowMinutes = ResolveNegativeWindowMinutes(position.SportKey);
+
                 var insideNegativeWindow =
-                    timeToKickoff <= TimeSpan.FromMinutes(_settlementOptions.NegativeEarlyExitWindowMinutes);
+                    timeToKickoff <= TimeSpan.FromMinutes(negativeWindowMinutes);
 
                 var insideFlatWindow =
                     timeToKickoff <= TimeSpan.FromMinutes(_settlementOptions.FlatEarlyExitWindowMinutes);
@@ -272,23 +274,23 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 var insideSlightlyPositiveWindow =
                     timeToKickoff <= TimeSpan.FromMinutes(_settlementOptions.SlightlyPositiveEarlyExitWindowMinutes);
 
-                // Regra final:
-                // 1) adverse -> só fecha se já estiver na janela curta de negativos
-                // 2) flat -> fecha na janela de flats
-                // 3) slightly positive -> só fecha muito perto do kickoff
-                // 4) clearly favorable -> protegido
+                var adverseCycles = UpdateAndGetAdverseCycleCount(position.Id, isAdverse);
+
+                var adversePersistentEnough = adverseCycles >= RequiredAdverseCyclesToEarlyExit;
+
                 var shouldEarlyExit =
                     gapToTarget >= _settlementOptions.MinGapToTargetForEarlyExit &&
                     !isClearlyFavorable &&
                     (
-                        (isAdverse && insideNegativeWindow) ||
+                        (isAdverse && insideNegativeWindow && adversePersistentEnough) ||
                         (isFlat && insideFlatWindow) ||
                         (isSlightlyPositive && insideSlightlyPositiveWindow)
                     );
 
                 _logger.LogInformation(
-                    "Early exit evaluation. positionId={PositionId} team={Team} mid={Mid:F4} comparableTarget={ComparableTarget:F4} gapToTarget={GapToTarget:F4} effectiveEntry={EffectiveEntry:F4} priceMoveSinceEntry={PriceMoveSinceEntry:F4} adverse={IsAdverse} flat={IsFlat} slightlyPositive={IsSlightlyPositive} clearlyFavorable={IsClearlyFavorable} insideNegativeWindow={InsideNegativeWindow} insideFlatWindow={InsideFlatWindow} insideSlightlyPositiveWindow={InsideSlightlyPositiveWindow} shouldEarlyExit={ShouldEarlyExit} timeToKickoff={TimeToKickoff}",
+                    "Early exit evaluation. positionId={PositionId} sportKey={SportKey} team={Team} mid={Mid:F4} comparableTarget={ComparableTarget:F4} gapToTarget={GapToTarget:F4} effectiveEntry={EffectiveEntry:F4} priceMoveSinceEntry={PriceMoveSinceEntry:F4} adverse={IsAdverse} flat={IsFlat} slightlyPositive={IsSlightlyPositive} clearlyFavorable={IsClearlyFavorable} insideNegativeWindow={InsideNegativeWindow} insideFlatWindow={InsideFlatWindow} insideSlightlyPositiveWindow={InsideSlightlyPositiveWindow} negativeWindowMinutes={NegativeWindowMinutes} adverseCycles={AdverseCycles} adversePersistentEnough={AdversePersistentEnough} shouldEarlyExit={ShouldEarlyExit} timeToKickoff={TimeToKickoff}",
                     position.Id,
+                    position.SportKey,
                     position.ObservedTeam,
                     currentMid,
                     comparableTargetProbability.Value,
@@ -302,14 +304,20 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     insideNegativeWindow,
                     insideFlatWindow,
                     insideSlightlyPositiveWindow,
+                    negativeWindowMinutes,
+                    adverseCycles,
+                    adversePersistentEnough,
                     shouldEarlyExit,
                     timeToKickoff.ToString(@"hh\:mm\:ss"));
 
                 if (shouldEarlyExit)
                 {
+                    ResetAdverseCycles(position.Id);
+
                     _logger.LogInformation(
-                        "Early kickoff exit triggered. positionId={PositionId} team={Team} mid={Mid:F4} comparableTarget={ComparableTarget:F4} gapToTarget={GapToTarget:F4} effectiveEntry={EffectiveEntry:F4} priceMoveSinceEntry={PriceMoveSinceEntry:F4} adverse={IsAdverse} flat={IsFlat} slightlyPositive={IsSlightlyPositive} timeToKickoff={TimeToKickoff}",
+                        "Early kickoff exit triggered. positionId={PositionId} sportKey={SportKey} team={Team} mid={Mid:F4} comparableTarget={ComparableTarget:F4} gapToTarget={GapToTarget:F4} effectiveEntry={EffectiveEntry:F4} priceMoveSinceEntry={PriceMoveSinceEntry:F4} adverse={IsAdverse} flat={IsFlat} slightlyPositive={IsSlightlyPositive} adverseCycles={AdverseCycles} timeToKickoff={TimeToKickoff}",
                         position.Id,
+                        position.SportKey,
                         position.ObservedTeam,
                         currentMid,
                         comparableTargetProbability.Value,
@@ -319,6 +327,7 @@ namespace Arb.Core.Executor.Worker.HostedServices
                         isAdverse,
                         isFlat,
                         isSlightlyPositive,
+                        adverseCycles,
                         timeToKickoff.ToString(@"hh\:mm\:ss"));
 
                     await ClosePositionAsync(
@@ -335,9 +344,15 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     return;
                 }
             }
+            else
+            {
+                ResetAdverseCycles(position.Id);
+            }
 
             if (kickoffWindowReached)
             {
+                ResetAdverseCycles(position.Id);
+
                 if (currentMidPrice.HasValue)
                 {
                     _logger.LogInformation(
@@ -458,6 +473,36 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 timeToKickoff.ToString(@"hh\:mm\:ss"));
         }
 
+        private int ResolveNegativeWindowMinutes(string sportKey)
+        {
+            if (string.Equals(sportKey, "soccer_spain_la_liga", StringComparison.OrdinalIgnoreCase))
+                return 120;
+
+            if (string.Equals(sportKey, "soccer_germany_bundesliga", StringComparison.OrdinalIgnoreCase))
+                return 120;
+
+            if (string.Equals(sportKey, "soccer_france_ligue_one", StringComparison.OrdinalIgnoreCase))
+                return 120;
+
+            return _settlementOptions.NegativeEarlyExitWindowMinutes;
+        }
+
+        private int UpdateAndGetAdverseCycleCount(Guid positionId, bool isAdverse)
+        {
+            if (!isAdverse)
+            {
+                _adverseCycleCounts.TryRemove(positionId, out _);
+                return 0;
+            }
+
+            return _adverseCycleCounts.AddOrUpdate(positionId, 1, (_, current) => current + 1);
+        }
+
+        private void ResetAdverseCycles(Guid positionId)
+        {
+            _adverseCycleCounts.TryRemove(positionId, out _);
+        }
+
         private static double? GetComparableTargetProbability(OpenPositionForSettlement position)
         {
             if (!position.TargetProbability.HasValue) return null;
@@ -488,15 +533,15 @@ namespace Arb.Core.Executor.Worker.HostedServices
         }
 
         private async Task ClosePositionAsync(
-        OpenPositionForSettlement position,
-        decimal? closePrice,
-        string exitReason,
-        DateTime utcNow,
-        IPositionRepository positionRepo,
-        IServiceScope scope,
-        bool hadMissingMidpointAtClose,
-        bool usedLastKnownMidPriceFallback,
-        CancellationToken ct)
+            OpenPositionForSettlement position,
+            decimal? closePrice,
+            string exitReason,
+            DateTime utcNow,
+            IPositionRepository positionRepo,
+            IServiceScope scope,
+            bool hadMissingMidpointAtClose,
+            bool usedLastKnownMidPriceFallback,
+            CancellationToken ct)
         {
             double? pnl = null;
             var entryPrice = position.PolymarketEntryPrice ?? position.EntryPrice;
@@ -508,7 +553,6 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 pnl = Math.Round(pnl.Value, 4, MidpointRounding.AwayFromZero);
             }
 
-            // 1. Fecha a posição primeiro
             await positionRepo.CloseAsync(
                 positionId: position.Id,
                 pnl: pnl ?? 0,
@@ -517,7 +561,6 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 exitReason: exitReason,
                 ct: ct);
 
-            // 2. Atualiza o saldo
             var portfolioRepo = scope.ServiceProvider
                 .GetRequiredService<IPortfolioRepository>();
 
@@ -528,7 +571,6 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 await portfolioRepo.UpdateBalanceAsync(newBalance, utcNow, ct);
             }
 
-            // 3. Persiste analytics ANTES do report
             var analyticsRepo = scope.ServiceProvider
                 .GetRequiredService<IPositionAnalyticsRepository>();
 
@@ -563,7 +605,6 @@ namespace Arb.Core.Executor.Worker.HostedServices
 
             await analyticsRepo.InsertClosureAnalyticsAsync(analytics, ct);
 
-            // 4. Report não pode impedir analytics
             try
             {
                 var reportRepo = scope.ServiceProvider
