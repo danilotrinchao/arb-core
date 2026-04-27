@@ -20,6 +20,9 @@ namespace Arb.Core.SignalEngine.Worker.Services
                 return ShadowDecisionResult.Publish(_options.ShadowPolicyVersion);
             }
 
+            // Esses checks só devem atuar quando o dado realmente existir.
+            // No SignalEngine, InitialEdge e DeltaVsComparableTarget ficam null
+            // porque o preço real da Polymarket só é buscado no Executor.
             if (qualification.DeltaVsComparableTarget.HasValue &&
                 qualification.DeltaVsComparableTarget.Value >= (decimal)_options.ShadowMaxPositiveDeltaGlobal)
             {
@@ -54,17 +57,17 @@ namespace Arb.Core.SignalEngine.Worker.Services
                     _options.ShadowPolicyVersion);
             }
 
-            if (qualification.SignalQualityScore < _options.ShadowMinSignalQualityScore)
-            {
-                return ShadowDecisionResult.Reject(
-                    "SHADOW_SIGNAL_QUALITY_SCORE_BELOW_MINIMUM",
-                    _options.ShadowPolicyVersion);
-            }
-
             if (string.Equals(qualification.SignalRiskCategory, "HIGH", StringComparison.OrdinalIgnoreCase))
             {
                 return ShadowDecisionResult.Reject(
                     "SHADOW_SIGNAL_RISK_HIGH",
+                    _options.ShadowPolicyVersion);
+            }
+
+            if (qualification.SignalQualityScore < _options.ShadowMinSignalQualityScore)
+            {
+                return ShadowDecisionResult.Reject(
+                    "SHADOW_SIGNAL_QUALITY_SCORE_BELOW_MINIMUM",
                     _options.ShadowPolicyVersion);
             }
 

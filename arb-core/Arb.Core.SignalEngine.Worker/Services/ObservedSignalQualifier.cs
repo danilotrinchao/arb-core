@@ -27,14 +27,14 @@ namespace Arb.Core.SignalEngine.Worker.Services
         {
             var comparableTargetProbability = GetComparableTargetProbability(intent);
 
+            // Importante:
+            // Neste ponto do pipeline, o SignalEngine ainda não possui o midpoint real da Polymarket.
+            // tick.ObservedPrice vem da fonte observada/bookmaker, não do CLOB da Polymarket.
+            // Portanto, InitialEdge e DeltaVsComparableTarget ficam nulos aqui.
+            // O Executor continua sendo a fonte correta para calcular:
+            // comparableTargetProbability - polymarketEntryPrice.
             decimal? initialEdge = null;
             decimal? deltaVsComparableTarget = null;
-
-            if (comparableTargetProbability.HasValue)
-            {
-                initialEdge = comparableTargetProbability.Value - tick.ObservedPrice;
-                deltaVsComparableTarget = tick.ObservedPrice - comparableTargetProbability.Value;
-            }
 
             var commenceTime = ResolveCommenceTime(intent, utcNow);
             var timeToKickoffSeconds = (commenceTime - utcNow).TotalSeconds;
@@ -45,13 +45,11 @@ namespace Arb.Core.SignalEngine.Worker.Services
             var signalQualityScore = CalculateSignalQualityScore(
                 movementPercent: intent.MovementPercent,
                 supportingSources: intent.SupportingSources,
-                deltaVsComparableTarget: deltaVsComparableTarget,
                 isLongHorizon: isLongHorizon,
                 leaguePolicyCategory: leaguePolicyCategory);
 
             var signalRiskCategory = ResolveSignalRiskCategory(
                 signalQualityScore,
-                deltaVsComparableTarget,
                 isLongHorizon,
                 leaguePolicyCategory);
 
@@ -70,8 +68,11 @@ namespace Arb.Core.SignalEngine.Worker.Services
         {
             var rawTarget = intent.TargetProbability;
 
-            if (rawTarget <= 0) return 0m;
-            if (rawTarget >= 1) return 1m;
+            if (rawTarget <= 0)
+                return 0m;
+
+            if (rawTarget >= 1)
+                return 1m;
 
             var targetSide = intent.TargetSide ?? string.Empty;
 
@@ -107,9 +108,9 @@ namespace Arb.Core.SignalEngine.Worker.Services
             PolymarketOrderIntentV1 intent,
             DateTime utcNow)
         {
-            var commenceTimeFromTick = TryParseDateTime(intent.CommenceTime);
-            if (commenceTimeFromTick.HasValue)
-                return commenceTimeFromTick.Value;
+            var commenceTimeFromIntent = TryParseDateTime(intent.CommenceTime);
+            if (commenceTimeFromIntent.HasValue)
+                return commenceTimeFromIntent.Value;
 
             var gameStartTimeFallback = TryParseDateTime(intent.GameStartTime);
             if (gameStartTimeFallback.HasValue)
@@ -139,37 +140,24 @@ namespace Arb.Core.SignalEngine.Worker.Services
         private double CalculateSignalQualityScore(
             decimal movementPercent,
             int supportingSources,
-            decimal? deltaVsComparableTarget,
             bool isLongHorizon,
             string leaguePolicyCategory)
         {
             double score = 50.0;
 
-            // supporting sources: até +20
             score += Math.Min(supportingSources * 5.0, 20.0);
-
-            // movement percent: até +20
             score += Math.Min((double)movementPercent * 2.0, 20.0);
 
-            // delta favorável
-            if (deltaVsComparableTarget.HasValue && deltaVsComparableTarget.Value <= 0)
-            {
-                score += _options.ScoreBonusForNonPositiveDelta;
-            }
-
-            // long horizon
             if (isLongHorizon)
             {
                 score -= _options.ScorePenaltyForLongHorizon;
             }
 
-            // liga restrita
             if (string.Equals(leaguePolicyCategory, "RESTRICTED", StringComparison.OrdinalIgnoreCase))
             {
                 score -= _options.ScorePenaltyForRestrictedLeague;
             }
 
-            // preferred
             if (string.Equals(leaguePolicyCategory, "PREFERRED", StringComparison.OrdinalIgnoreCase))
             {
                 score += 5.0;
@@ -182,22 +170,24 @@ namespace Arb.Core.SignalEngine.Worker.Services
 
         private string ResolveSignalRiskCategory(
             double signalQualityScore,
-            decimal? deltaVsComparableTarget,
             bool isLongHorizon,
             string leaguePolicyCategory)
         {
-            if (deltaVsComparableTarget.HasValue && deltaVsComparableTarget.Value > 0.03m)
-                return "HIGH";
-
             if (isLongHorizon &&
                 string.Equals(leaguePolicyCategory, "RESTRICTED", StringComparison.OrdinalIgnoreCase))
+            {
                 return "HIGH";
+            }
 
             if (signalQualityScore >= 75)
+            {
                 return "LOW";
+            }
 
             if (signalQualityScore >= 55)
+            {
                 return "MEDIUM";
+            }
 
             return "HIGH";
         }
