@@ -23,5 +23,18 @@
         public double ScoreBonusForNonPositiveDelta { get; init; } = 10;
         public double ScorePenaltyForLongHorizon { get; init; } = 10;
         public double ScorePenaltyForRestrictedLeague { get; init; } = 10;
+        public bool EnableShadowSignalPolicy { get; init; } = true;
+
+        public double ShadowMinSignalQualityScore { get; init; } = 55.0;
+
+        public double ShadowMaxPositiveDeltaGlobal { get; init; } = 0.03;
+
+        public double ShadowMaxPositiveDeltaLongHorizon { get; init; } = 0.01;
+
+        public double ShadowMinInitialEdgeGlobal { get; init; } = 0.02;
+
+        public double ShadowMinInitialEdgeLongHorizon { get; init; } = 0.03;
+
+        public string ShadowPolicyVersion { get; init; } = "SignalShadowPolicyV1";
     }
 }

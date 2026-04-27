@@ -110,5 +110,13 @@ namespace Arb.Core.Contracts.Common.PolimarketSignals
 
         [JsonPropertyName("signalRiskCategory")]
         public string SignalRiskCategory { get; init; } = "MEDIUM";
+        [JsonPropertyName("shadowDecision")]
+        public string ShadowDecision { get; init; } = "WOULD_PUBLISH";
+
+        [JsonPropertyName("shadowRejectReason")]
+        public string? ShadowRejectReason { get; init; }
+
+        [JsonPropertyName("shadowPolicyVersion")]
+        public string ShadowPolicyVersion { get; init; } = "SignalShadowPolicyV1";
     }
 }
