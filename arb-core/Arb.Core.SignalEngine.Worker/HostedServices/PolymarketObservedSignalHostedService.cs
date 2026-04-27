@@ -3,6 +3,7 @@ using Arb.Core.Application.Abstractions.Signals;
 using Arb.Core.Contracts.Common.PolimarketSignals;
 using Arb.Core.Contracts.Common.PolymarketObservation;
 using Arb.Core.Infrastructure.Redis.SoccerCatalog;
+using Arb.Core.SignalEngine.Worker.Services;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 using System.Globalization;
@@ -20,6 +21,7 @@ namespace Arb.Core.SignalEngine.Worker.HostedServices
         private readonly IConnectionMultiplexer _connectionMultiplexer;
         private readonly IStreamPublisher _publisher;
         private readonly IPolymarketObservedSignalEngine _signalEngine;
+        private readonly ObservedSignalQualifier _observedSignalQualifier;
         private readonly PolymarketObservedSignalOptions _options;
         private readonly ILogger<PolymarketObservedSignalHostedService> _logger;
 
@@ -27,12 +29,14 @@ namespace Arb.Core.SignalEngine.Worker.HostedServices
             IConnectionMultiplexer connectionMultiplexer,
             IStreamPublisher publisher,
             IPolymarketObservedSignalEngine signalEngine,
+            ObservedSignalQualifier observedSignalQualifier,
             IOptions<PolymarketObservedSignalOptions> options,
             ILogger<PolymarketObservedSignalHostedService> logger)
         {
             _connectionMultiplexer = connectionMultiplexer;
             _publisher = publisher;
             _signalEngine = signalEngine;
+            _observedSignalQualifier = observedSignalQualifier;
             _options = options.Value;
             _logger = logger;
         }
@@ -141,17 +145,32 @@ namespace Arb.Core.SignalEngine.Worker.HostedServices
                             continue;
                         }
 
-                        await PublishIntentAsync(intent, stoppingToken);
+                        var qualification = _observedSignalQualifier.Qualify(
+                            tick,
+                            intent,
+                            DateTime.UtcNow);
+
+                        var enrichedIntent = CloneWithQualification(intent, qualification);
+
+                        await PublishIntentAsync(enrichedIntent, stoppingToken);
 
                         _logger.LogInformation(
-                            "POLYMARKET_ORDER_INTENT published intentId={IntentId} conditionId={ConditionId} side={Side} prevRef={PrevRef} currRef={CurrRef} move={Move}% sources={Sources}",
-                            intent.IntentId,
-                            intent.PolymarketConditionId,
-                            intent.TargetSide,
-                            intent.PreviousReferencePrice.ToString(CultureInfo.InvariantCulture),
-                            intent.CurrentReferencePrice.ToString(CultureInfo.InvariantCulture),
-                            intent.MovementPercent.ToString(CultureInfo.InvariantCulture),
-                            intent.SupportingSources);
+                            "POLYMARKET_ORDER_INTENT published intentId={IntentId} conditionId={ConditionId} side={Side} prevRef={PrevRef} currRef={CurrRef} move={Move}% sources={Sources} comparableTarget={ComparableTarget} initialEdge={InitialEdge} deltaVsComparableTarget={DeltaVsComparableTarget} timeToKickoffSeconds={TimeToKickoffSeconds} isLongHorizon={IsLongHorizon} leaguePolicy={LeaguePolicy} signalQualityScore={SignalQualityScore} signalRiskCategory={SignalRiskCategory}",
+                            enrichedIntent.IntentId,
+                            enrichedIntent.PolymarketConditionId,
+                            enrichedIntent.TargetSide,
+                            enrichedIntent.PreviousReferencePrice.ToString(CultureInfo.InvariantCulture),
+                            enrichedIntent.CurrentReferencePrice.ToString(CultureInfo.InvariantCulture),
+                            enrichedIntent.MovementPercent.ToString(CultureInfo.InvariantCulture),
+                            enrichedIntent.SupportingSources,
+                            enrichedIntent.ComparableTargetProbability?.ToString(CultureInfo.InvariantCulture) ?? "null",
+                            enrichedIntent.InitialEdge?.ToString(CultureInfo.InvariantCulture) ?? "null",
+                            enrichedIntent.DeltaVsComparableTarget?.ToString(CultureInfo.InvariantCulture) ?? "null",
+                            enrichedIntent.TimeToKickoffSeconds?.ToString(CultureInfo.InvariantCulture) ?? "null",
+                            enrichedIntent.IsLongHorizon,
+                            enrichedIntent.LeaguePolicyCategory,
+                            enrichedIntent.SignalQualityScore?.ToString(CultureInfo.InvariantCulture) ?? "null",
+                            enrichedIntent.SignalRiskCategory);
                     }
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -164,6 +183,51 @@ namespace Arb.Core.SignalEngine.Worker.HostedServices
                     await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
                 }
             }
+        }
+
+        private static PolymarketOrderIntentV1 CloneWithQualification(
+            PolymarketOrderIntentV1 source,
+            ObservedSignalQualifier.QualificationResult qualification)
+        {
+            return new PolymarketOrderIntentV1
+            {
+                IntentId = source.IntentId,
+                ObservationId = source.ObservationId,
+                ObservedEventId = source.ObservedEventId,
+                SportKey = source.SportKey,
+                BookmakerKey = source.BookmakerKey,
+                SelectionKey = source.SelectionKey,
+                ObservedTeam = source.ObservedTeam,
+                MovementDirection = source.MovementDirection,
+                PreviousReferencePrice = source.PreviousReferencePrice,
+                CurrentReferencePrice = source.CurrentReferencePrice,
+                TargetProbability = source.TargetProbability,
+                MovementPercent = source.MovementPercent,
+                SupportingSources = source.SupportingSources,
+                PolymarketConditionId = source.PolymarketConditionId,
+                PolymarketCatalogId = source.PolymarketCatalogId,
+                PolymarketQuestion = source.PolymarketQuestion,
+                PolymarketMarketSlug = source.PolymarketMarketSlug,
+                TargetSide = source.TargetSide,
+                TargetTokenId = source.TargetTokenId,
+                YesTokenId = source.YesTokenId,
+                NoTokenId = source.NoTokenId,
+                MatchedGammaId = source.MatchedGammaId,
+                MatchedGammaStartTime = source.MatchedGammaStartTime,
+                CommenceTime = source.CommenceTime,
+                GameStartTime = source.GameStartTime,
+                ProjectionReasonCode = source.ProjectionReasonCode,
+                GeneratedAt = source.GeneratedAt,
+
+                ComparableTargetProbability = qualification.ComparableTargetProbability,
+                InitialEdge = qualification.InitialEdge,
+                DeltaVsComparableTarget = qualification.DeltaVsComparableTarget,
+                TimeToKickoffSeconds = qualification.TimeToKickoffSeconds,
+                IsLongHorizon = qualification.IsLongHorizon,
+                LeaguePolicyCategory = qualification.LeaguePolicyCategory,
+                SignalQualityScore = qualification.SignalQualityScore,
+                SignalRiskCategory = qualification.SignalRiskCategory
+            };
         }
 
         private async Task PublishIntentAsync(
@@ -184,12 +248,21 @@ namespace Arb.Core.SignalEngine.Worker.HostedServices
                 ["movementDirection"] = intent.MovementDirection,
                 ["previousReferencePrice"] = intent.PreviousReferencePrice.ToString(CultureInfo.InvariantCulture),
                 ["currentReferencePrice"] = intent.CurrentReferencePrice.ToString(CultureInfo.InvariantCulture),
+                ["targetProbability"] = intent.TargetProbability.ToString(CultureInfo.InvariantCulture),
                 ["movementPercent"] = intent.MovementPercent.ToString(CultureInfo.InvariantCulture),
                 ["supportingSources"] = intent.SupportingSources.ToString(CultureInfo.InvariantCulture),
                 ["polymarketConditionId"] = intent.PolymarketConditionId,
                 ["targetSide"] = intent.TargetSide,
                 ["targetTokenId"] = intent.TargetTokenId,
                 ["generatedAt"] = intent.GeneratedAt,
+                ["comparableTargetProbability"] = intent.ComparableTargetProbability?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                ["initialEdge"] = intent.InitialEdge?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                ["deltaVsComparableTarget"] = intent.DeltaVsComparableTarget?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                ["timeToKickoffSeconds"] = intent.TimeToKickoffSeconds?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                ["isLongHorizon"] = intent.IsLongHorizon.ToString(),
+                ["leaguePolicyCategory"] = intent.LeaguePolicyCategory,
+                ["signalQualityScore"] = intent.SignalQualityScore?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                ["signalRiskCategory"] = intent.SignalRiskCategory,
                 ["payload"] = payload
             };
 
@@ -236,7 +309,7 @@ namespace Arb.Core.SignalEngine.Worker.HostedServices
         {
             var db = _connectionMultiplexer.GetDatabase();
 
-              var result = await db.ExecuteAsync(
+            var result = await db.ExecuteAsync(
                 "XREAD",
                 "COUNT",
                 _options.ReadCount.ToString(),

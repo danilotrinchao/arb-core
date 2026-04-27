@@ -17,5 +17,11 @@
         public int MinSourcesForReference { get; init; } = 2;
 
         public int MaxSourceStalenessMinutes { get; init; } = 120;
+        public int LongHorizonMinutes { get; init; } = 2880;
+        public string RestrictedLeagueKeysCsv { get; init; } = "soccer_spain_la_liga,soccer_france_ligue_one";
+        public string PreferredLeagueKeysCsv { get; init; } = "soccer_brazil_campeonato,soccer_uefa_champs_league";
+        public double ScoreBonusForNonPositiveDelta { get; init; } = 10;
+        public double ScorePenaltyForLongHorizon { get; init; } = 10;
+        public double ScorePenaltyForRestrictedLeague { get; init; } = 10;
     }
 }

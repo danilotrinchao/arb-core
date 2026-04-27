@@ -28,20 +28,12 @@ namespace Arb.Core.Contracts.Common.PolimarketSignals
         [JsonPropertyName("movementDirection")]
         public string MovementDirection { get; init; } = string.Empty;
 
-        // Preço de referência anterior em probabilidade implícita (0 a 1)
-        // Anteriormente era odd decimal — corrigido no Passo 5 (projector)
         [JsonPropertyName("previousReferencePrice")]
         public decimal PreviousReferencePrice { get; init; }
 
-        // Preço de referência atual em probabilidade implícita (0 a 1)
-        // É a mediana dos bookmakers asiáticos convertida para probabilidade
         [JsonPropertyName("currentReferencePrice")]
         public decimal CurrentReferencePrice { get; init; }
 
-        // Alvo de convergência — probabilidade implícita da odd asiática atual
-        // O monitor fecha a posição quando mid_price Polymarket >= TargetProbability
-        // Igual ao CurrentReferencePrice quando a odd asiática subiu (odds caiu)
-        // ou seja: quando o mercado asiático ficou mais confiante no time
         [JsonPropertyName("targetProbability")]
         public decimal TargetProbability { get; init; }
 
@@ -85,7 +77,7 @@ namespace Arb.Core.Contracts.Common.PolimarketSignals
         public string? CommenceTime { get; init; }
 
         [JsonPropertyName("gameStartTime")]
-        public string? GameStartTime {get; init;}
+        public string? GameStartTime { get; init; }
 
         [JsonPropertyName("projectionReasonCode")]
         public string ProjectionReasonCode { get; init; } = string.Empty;
@@ -93,6 +85,30 @@ namespace Arb.Core.Contracts.Common.PolimarketSignals
         [JsonPropertyName("generatedAt")]
         public string GeneratedAt { get; init; } = string.Empty;
 
+        // ===== Campos de observabilidade / qualificação =====
 
+        [JsonPropertyName("comparableTargetProbability")]
+        public decimal? ComparableTargetProbability { get; init; }
+
+        [JsonPropertyName("initialEdge")]
+        public decimal? InitialEdge { get; init; }
+
+        [JsonPropertyName("deltaVsComparableTarget")]
+        public decimal? DeltaVsComparableTarget { get; init; }
+
+        [JsonPropertyName("timeToKickoffSeconds")]
+        public double? TimeToKickoffSeconds { get; init; }
+
+        [JsonPropertyName("isLongHorizon")]
+        public bool IsLongHorizon { get; init; }
+
+        [JsonPropertyName("leaguePolicyCategory")]
+        public string LeaguePolicyCategory { get; init; } = "NORMAL";
+
+        [JsonPropertyName("signalQualityScore")]
+        public double? SignalQualityScore { get; init; }
+
+        [JsonPropertyName("signalRiskCategory")]
+        public string SignalRiskCategory { get; init; } = "MEDIUM";
     }
 }
