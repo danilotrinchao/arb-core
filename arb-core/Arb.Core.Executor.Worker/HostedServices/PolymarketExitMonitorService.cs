@@ -383,7 +383,9 @@ namespace Arb.Core.Executor.Worker.HostedServices
                     return;
                 }
 
-                if (position.LastKnownMidPrice.HasValue && position.LastPriceCheckedAt.HasValue)
+                if (position.LastKnownMidPrice.HasValue &&
+                     IsValidStoredMidpoint(position.LastKnownMidPrice.Value) &&
+                     position.LastPriceCheckedAt.HasValue)
                 {
                     var priceAge = utcNow - position.LastPriceCheckedAt.Value;
                     var maxAge = TimeSpan.FromMinutes(_settlementOptions.MaxPriceAgeMinutes);
@@ -473,6 +475,10 @@ namespace Arb.Core.Executor.Worker.HostedServices
                 timeToKickoff.ToString(@"hh\:mm\:ss"));
         }
 
+        private static bool IsValidStoredMidpoint(double value)
+        {
+            return value >= 0.02d && value <= 0.98d;
+        }
         private int ResolveNegativeWindowMinutes(string sportKey)
         {
             if (string.Equals(sportKey, "soccer_spain_la_liga", StringComparison.OrdinalIgnoreCase))

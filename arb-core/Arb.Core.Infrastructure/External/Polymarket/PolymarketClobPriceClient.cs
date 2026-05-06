@@ -37,11 +37,6 @@ namespace Arb.Core.Infrastructure.External.Polymarket
             }
         }
 
-        /// <summary>
-        /// Consulta o midpoint de um único token.
-        /// Retorna null se o token não tiver orderbook, for inválido,
-        /// ou em caso de erro persistente.
-        /// </summary>
         public async Task<decimal?> GetMidpointAsync(
             string tokenId,
             CancellationToken ct)
@@ -52,6 +47,7 @@ namespace Arb.Core.Infrastructure.External.Polymarket
             {
                 _logger.LogWarning(
                     "Polymarket CLOB midpoint requested with empty tokenId.");
+
                 return null;
             }
 
@@ -62,11 +58,6 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                 : null;
         }
 
-        /// <summary>
-        /// Consulta o midpoint de múltiplos tokens.
-        /// Retorna dicionário tokenId -> midPrice.
-        /// Tokens sem orderbook ou com erro são omitidos do resultado.
-        /// </summary>
         public async Task<IReadOnlyDictionary<string, decimal>> GetMidpointsAsync(
             IReadOnlyList<string> tokenIds,
             CancellationToken ct)
@@ -81,6 +72,7 @@ namespace Arb.Core.Infrastructure.External.Polymarket
             {
                 _logger.LogWarning(
                     "Polymarket CLOB midpoint requested with no valid tokenIds.");
+
                 return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
             }
 
@@ -93,7 +85,7 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                     using var response = await _httpClient.GetAsync(query, ct);
 
                     if (response.StatusCode == HttpStatusCode.BadRequest ||
-                     response.StatusCode == HttpStatusCode.NotFound)
+                        response.StatusCode == HttpStatusCode.NotFound)
                     {
                         var body = await SafeReadBodyAsync(response, ct);
 
@@ -108,7 +100,11 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                         if (response.StatusCode == HttpStatusCode.NotFound &&
                             body.Contains("No orderbook exists", StringComparison.OrdinalIgnoreCase))
                         {
-                            await MarkNoOrderbookAsync(normalizedTokenIds, response.StatusCode, body, ct);
+                            await MarkNoOrderbookAsync(
+                                normalizedTokenIds,
+                                response.StatusCode,
+                                body,
+                                ct);
                         }
 
                         return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
@@ -121,12 +117,16 @@ namespace Arb.Core.Infrastructure.External.Polymarket
 
                     if (parsed.Count == 0)
                     {
-                        _logger.LogDebug(
-                            "Polymarket CLOB midpoint returned success but no parsed values. TokenCount={TokenCount} IsSingleToken={IsSingleToken} TokenIds={TokenIds} ResponseBody={ResponseBody}",
+                        _logger.LogWarning(
+                            "Polymarket CLOB midpoint returned success but no valid parsed values. TokenCount={TokenCount} IsSingleToken={IsSingleToken} TokenIds={TokenIds} ResponseBody={ResponseBody}",
                             normalizedTokenIds.Length,
                             normalizedTokenIds.Length == 1,
                             string.Join(",", normalizedTokenIds),
                             content.Length > 1000 ? content[..1000] : content);
+                    }
+                    else
+                    {
+                        await MarkHealthyAsync(parsed.Keys.ToArray(), ct);
                     }
 
                     return parsed;
@@ -169,39 +169,6 @@ namespace Arb.Core.Infrastructure.External.Polymarket
             return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
         }
 
-        private async Task MarkNoOrderbookAsync(
-        IReadOnlyList<string> tokenIds,
-        HttpStatusCode statusCode,
-        string body,
-        CancellationToken ct)
-        {
-            var utcNow = DateTime.UtcNow;
-            var retryAfter = utcNow.AddHours(6);
-
-            using var scope = _scopeFactory.CreateScope();
-            var repo = scope.ServiceProvider.GetRequiredService<ITokenHealthRepository>();
-
-            foreach (var tokenId in tokenIds)
-            {
-                await repo.UpsertNoOrderbookAsync(
-                    tokenId: tokenId,
-                    httpStatus: (int)statusCode,
-                    responseBody: body,
-                    utcNow: utcNow,
-                    retryAfter: retryAfter,
-                    ct: ct);
-            }
-        }
-
-        private static string BuildMidpointQuery(IReadOnlyList<string> tokenIds)
-        {
-            var queryParts = tokenIds
-                .Where(id => !string.IsNullOrWhiteSpace(id))
-                .Select(id => $"token_id={Uri.EscapeDataString(id)}");
-
-            return "/midpoint?" + string.Join("&", queryParts);
-        }
-
         private IReadOnlyDictionary<string, decimal> ParseMidpointResponse(
             string content,
             IReadOnlyList<string> tokenIds)
@@ -224,12 +191,10 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                     {
                         var midPriceStr = midPriceEl.GetString();
 
-                        if (decimal.TryParse(
+                        if (TryParseValidMidpoint(
+                                tokenIds[0],
                                 midPriceStr,
-                                System.Globalization.NumberStyles.Any,
-                                System.Globalization.CultureInfo.InvariantCulture,
-                                out var midPrice) &&
-                            midPrice > 0)
+                                out var midPrice))
                         {
                             result[tokenIds[0]] = midPrice;
                         }
@@ -258,12 +223,10 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                             {
                                 var raw = value.GetString();
 
-                                if (decimal.TryParse(
+                                if (TryParseValidMidpoint(
+                                        key,
                                         raw,
-                                        System.Globalization.NumberStyles.Any,
-                                        System.Globalization.CultureInfo.InvariantCulture,
-                                        out var parsed) &&
-                                    parsed > 0)
+                                        out var parsed))
                                 {
                                     result[key] = parsed;
                                 }
@@ -277,12 +240,10 @@ namespace Arb.Core.Infrastructure.External.Polymarket
                             {
                                 var raw = nestedMidPriceEl.GetString();
 
-                                if (decimal.TryParse(
+                                if (TryParseValidMidpoint(
+                                        key,
                                         raw,
-                                        System.Globalization.NumberStyles.Any,
-                                        System.Globalization.CultureInfo.InvariantCulture,
-                                        out var parsed) &&
-                                    parsed > 0)
+                                        out var parsed))
                                 {
                                     result[key] = parsed;
                                 }
@@ -302,16 +263,16 @@ namespace Arb.Core.Infrastructure.External.Polymarket
 
             if (tokenIds.Count > 1 && result.Count == 0)
             {
-                _logger.LogDebug(
-                    "Polymarket CLOB returned no parsed midpoints for multi-token request. TokenIds={TokenIds} Content={Content}",
+                _logger.LogWarning(
+                    "Polymarket CLOB returned no valid parsed midpoints for multi-token request. TokenIds={TokenIds} Content={Content}",
                     string.Join(",", tokenIds),
                     content.Length > 1000 ? content[..1000] : content);
             }
 
             if (tokenIds.Count == 1 && result.Count == 0)
             {
-                _logger.LogDebug(
-                    "Polymarket CLOB returned no parsed midpoint for single-token request. TokenId={TokenId} Content={Content}",
+                _logger.LogWarning(
+                    "Polymarket CLOB returned no valid parsed midpoint for single-token request. TokenId={TokenId} Content={Content}",
                     tokenIds[0],
                     content.Length > 500 ? content[..500] : content);
             }
@@ -319,7 +280,7 @@ namespace Arb.Core.Infrastructure.External.Polymarket
             return result;
         }
 
-        private static void ParseMidpointItem(
+        private void ParseMidpointItem(
             JsonElement item,
             Dictionary<string, decimal> result)
         {
@@ -338,14 +299,107 @@ namespace Arb.Core.Infrastructure.External.Polymarket
 
             var midPriceStr = midPriceEl.GetString();
 
-            if (decimal.TryParse(
+            if (TryParseValidMidpoint(
+                    tokenId,
                     midPriceStr,
-                    System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    out var midPrice) &&
-                midPrice > 0)
+                    out var midPrice))
             {
                 result[tokenId] = midPrice;
+            }
+        }
+
+        private bool TryParseValidMidpoint(
+            string tokenId,
+            string? raw,
+            out decimal midpoint)
+        {
+            midpoint = 0m;
+
+            if (string.IsNullOrWhiteSpace(raw))
+                return false;
+
+            if (!decimal.TryParse(
+                    raw,
+                    System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var parsed))
+            {
+                _logger.LogWarning(
+                    "Polymarket CLOB midpoint parse failed. tokenId={TokenId} raw={Raw}",
+                    tokenId,
+                    raw);
+
+                return false;
+            }
+
+            if (parsed < _options.MinValidMidpointPrice ||
+                parsed > _options.MaxValidMidpointPrice)
+            {
+                _logger.LogWarning(
+                    "Polymarket CLOB midpoint rejected as invalid/out-of-range. tokenId={TokenId} midpoint={Midpoint} min={Min} max={Max}",
+                    tokenId,
+                    parsed,
+                    _options.MinValidMidpointPrice,
+                    _options.MaxValidMidpointPrice);
+
+                return false;
+            }
+
+            midpoint = parsed;
+            return true;
+        }
+
+        private static string BuildMidpointQuery(IReadOnlyList<string> tokenIds)
+        {
+            var queryParts = tokenIds
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => $"token_id={Uri.EscapeDataString(id)}");
+
+            return "/midpoint?" + string.Join("&", queryParts);
+        }
+
+        private async Task MarkNoOrderbookAsync(
+            IReadOnlyList<string> tokenIds,
+            HttpStatusCode statusCode,
+            string body,
+            CancellationToken ct)
+        {
+            var utcNow = DateTime.UtcNow;
+            var retryAfter = utcNow.AddHours(6);
+
+            using var scope = _scopeFactory.CreateScope();
+            var repo = scope.ServiceProvider.GetRequiredService<ITokenHealthRepository>();
+
+            foreach (var tokenId in tokenIds)
+            {
+                await repo.UpsertNoOrderbookAsync(
+                    tokenId: tokenId,
+                    httpStatus: (int)statusCode,
+                    responseBody: body,
+                    utcNow: utcNow,
+                    retryAfter: retryAfter,
+                    ct: ct);
+            }
+        }
+
+        private async Task MarkHealthyAsync(
+            IReadOnlyList<string> tokenIds,
+            CancellationToken ct)
+        {
+            if (tokenIds.Count == 0)
+                return;
+
+            using var scope = _scopeFactory.CreateScope();
+            var repo = scope.ServiceProvider.GetRequiredService<ITokenHealthRepository>();
+
+            var utcNow = DateTime.UtcNow;
+
+            foreach (var tokenId in tokenIds)
+            {
+                await repo.MarkHealthyAsync(
+                    tokenId,
+                    utcNow,
+                    ct);
             }
         }
 

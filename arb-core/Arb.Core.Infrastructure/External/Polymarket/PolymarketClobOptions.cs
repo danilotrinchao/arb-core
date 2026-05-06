@@ -21,5 +21,8 @@ namespace Arb.Core.Infrastructure.External.Polymarket
         // Delay base do backoff exponencial em milissegundos
         // Tentativa 1: 500ms, Tentativa 2: 1000ms, Tentativa 3: 2000ms
         public int RetryBaseDelayMs { get; init; } = 500;
+        // Proteção contra preço fantasma / mercado sem book real
+        public decimal MinValidMidpointPrice { get; init; } = 0.02m;
+        public decimal MaxValidMidpointPrice { get; init; } = 0.98m;
     }
 }
